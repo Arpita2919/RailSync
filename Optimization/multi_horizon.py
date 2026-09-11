@@ -163,6 +163,15 @@ class MultiHorizonPlanner:
             else:
                 day_schedules[-1].append(st)
 
+        total_expected_downtime = sum(
+            getattr(t, "expected_downtime_days", 0.0) or 0.0 for t in tasks
+        )
+        prevented_downtime = sum(
+            getattr(t, "expected_downtime_days", 0.0) or 0.0
+            for t in tasks
+            if any(st.task_id == t.task_id and st.status == "SCHEDULED" for st in result.scheduled_tasks)
+        )
+
         monthly_summary = {
             "horizon": HorizonType.MONTHLY,
             "horizon_days": 30,
@@ -172,6 +181,8 @@ class MultiHorizonPlanner:
             "weekly_distribution": {f"Week {w}": count for w, count in sorted(week_schedules.items())},
             "active_blocks_used": result.active_blocks_count,
             "total_freight_delays": result.total_freight_trains_delayed,
+            "total_expected_downtime_days": round(total_expected_downtime, 2),
+            "prevented_downtime_days": round(prevented_downtime, 2),
             "network_asset_availability_ratio": (
                 round(1.0 - (result.active_blocks_count / max(1, len(blocks))), 3)
             ),

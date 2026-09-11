@@ -812,7 +812,57 @@ class TestRailSyncOptimizer(unittest.TestCase):
         self.assertEqual(revised_map["T_EMERGENCY_HIGH_PRIORITY"].assigned_block, "BLK-FIXED-02")
         self.assertEqual(revised_map["T_EMERGENCY_HIGH_PRIORITY"].status, "SCHEDULED")
 
+    # --------------------------------------------------------------------------
+    # Test 16: Layer 1 ML Metadata Preservation & Empirical Robustness
+    # --------------------------------------------------------------------------
+    def test_16_layer1_ml_metadata_and_empirical_robustness(self):
+        """Verify that MaintenanceTask safely carries ML metadata and passes empirical curves to robustness."""
+        empirical_curve = [
+            {"day": d, "survival_probability": max(0.01, 1.0 - (d * 0.03))}
+            for d in range(1, 31)
+        ]
+        task = MaintenanceTask(
+            task_id="TASK-ML-01",
+            segment="SEC-ML-001",
+            claimed_criticality="HIGH",
+            min_duration_hrs=2.5,
+            risk_30d=0.85,
+            expected_downtime_days=4.2,
+            overrun_probability=0.15,
+            confidence="high",
+            cold_start_fallback=False,
+            survival_curve=empirical_curve,
+        )
+        self.assertEqual(task.expected_downtime_days, 4.2)
+        self.assertEqual(task.overrun_probability, 0.15)
+        self.assertEqual(task.confidence, "high")
+        self.assertEqual(task.cold_start_fallback, False)
+        self.assertEqual(len(task.survival_curve), 30)
 
+        # Verify monthly planning computes expected downtime metrics
+        block = BlockWindow(
+            block_id="BLK-ML-01",
+            start_time="01:00",
+            end_time="05:00",
+            duration_hrs=4.0,
+            window_index=0,
+        )
+        planner = MultiHorizonPlanner(optimizer=self.optimizer)
+        monthly_res = planner.generate_monthly_plan(tasks=[task], blocks=[block])
+        self.assertIn("total_expected_downtime_days", monthly_res.horizon_summary)
+        self.assertEqual(monthly_res.horizon_summary["total_expected_downtime_days"], 4.2)
+        self.assertEqual(monthly_res.horizon_summary["prevented_downtime_days"], 4.2)
+
+        # Verify robustness engine samples from empirical survival curve
+        rob_engine = ScenarioRobustnessEngine(num_scenarios=20, seed=42)
+        rob_res = rob_engine.evaluate_plan_robustness(
+            tasks=[task],
+            blocks=[block],
+            schedule_result=monthly_res.schedule,
+            planning_horizon_days=30,
+        )
+        self.assertEqual(rob_res.total_scenarios, 20)
+        self.assertGreaterEqual(rob_res.robustness_percentage, 0.0)
 
 
 if __name__ == "__main__":

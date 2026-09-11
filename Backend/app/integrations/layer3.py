@@ -72,16 +72,64 @@ def transform_task(
         crit_str = "MEDIUM"
 
     seg_id = task_dict.get("segment_id") or task_dict.get("segment") or "DEFAULT_SEG"
+    seg_risk = risk_dict.get(str(seg_id), {}) if risk_dict and isinstance(risk_dict.get(str(seg_id)), dict) else {}
 
-    # Resolve risk_30d (from task or Layer 1 risk map)
+    # 1. Resolve risk_30d (from task or Layer 1 risk map)
     risk_30d = float(task_dict.get("risk_30d", 0.0))
-    if risk_30d == 0.0 and risk_dict:
-        seg_risk = risk_dict.get(str(seg_id), {})
-        if isinstance(seg_risk, dict):
-            risk_30d = float(seg_risk.get("risk_30d", 0.0))
+    if risk_30d == 0.0 and seg_risk:
+        risk_30d = float(seg_risk.get("risk_30d", 0.0))
 
-    duration = float(task_dict.get("min_duration_hrs", task_dict.get("duration_hrs", 2.0)))
+    # 2. Resolve Duration:
+    # Explicit task duration = operational requirement (DO NOT overwrite if valid & > 0)
+    # ML preventive_block_duration_hrs = predicted duration fallback
+    task_dur_raw = task_dict.get("min_duration_hrs")
+    if task_dur_raw is None or task_dur_raw == "":
+        task_dur_raw = task_dict.get("duration_hrs")
+
+    if task_dur_raw is not None:
+        try:
+            val = float(task_dur_raw)
+            if val > 0.0:
+                duration = val
+            else:
+                duration = float(seg_risk.get("preventive_block_duration_hrs", 2.0))
+        except (ValueError, TypeError):
+            duration = float(seg_risk.get("preventive_block_duration_hrs", 2.0))
+    else:
+        duration = float(seg_risk.get("preventive_block_duration_hrs", 2.0))
+
     pref_win = task_dict.get("preferred_window") if isinstance(task_dict.get("preferred_window"), str) else None
+
+    # 3. Resolve ML Metadata: expected_downtime_days, overrun_probability, confidence, cold_start_fallback, survival_curve
+    exp_downtime = task_dict.get("expected_downtime_days")
+    if exp_downtime is None and seg_risk:
+        exp_downtime = seg_risk.get("expected_downtime_days")
+    if exp_downtime is not None:
+        try:
+            exp_downtime = float(exp_downtime)
+        except (ValueError, TypeError):
+            exp_downtime = None
+
+    overrun_prob = task_dict.get("overrun_probability")
+    if overrun_prob is None and seg_risk:
+        overrun_prob = seg_risk.get("overrun_probability")
+    if overrun_prob is not None:
+        try:
+            overrun_prob = float(overrun_prob)
+        except (ValueError, TypeError):
+            overrun_prob = None
+
+    conf = task_dict.get("confidence")
+    if conf is None and seg_risk:
+        conf = seg_risk.get("confidence")
+
+    cold_start = task_dict.get("cold_start_fallback")
+    if cold_start is None and seg_risk:
+        cold_start = seg_risk.get("cold_start_fallback")
+
+    surv_curve = task_dict.get("survival_curve")
+    if surv_curve is None and seg_risk:
+        surv_curve = seg_risk.get("survival_curve")
 
     return MaintenanceTask(
         task_id=str(task_dict["task_id"]),
@@ -92,6 +140,11 @@ def transform_task(
         preferred_window=pref_win,
         description=str(task_dict.get("description", task_dict.get("task_type", ""))),
         day_index=int(task_dict.get("day_index", 0)),
+        expected_downtime_days=exp_downtime,
+        overrun_probability=overrun_prob,
+        confidence=conf,
+        cold_start_fallback=cold_start,
+        survival_curve=surv_curve,
     )
 
 

@@ -37,6 +37,8 @@ def get_all_segment_risks(db: Session) -> list[SegmentRiskSummary]:
             expected_downtime_days=r.expected_downtime_days,
             preventive_block_duration_hrs=r.preventive_block_duration_hrs,
             confidence=r.confidence,
+            overrun_probability=r.overrun_probability,
+            cold_start_fallback=r.cold_start_fallback,
         ))
 
     results.sort(key=lambda x: x.risk_30d, reverse=True)
@@ -57,6 +59,8 @@ def get_segment_risk(db: Session, segment_id: str) -> RiskPredictionResponse:
             expected_downtime_days=cached.expected_downtime_days,
             preventive_block_duration_hrs=cached.preventive_block_duration_hrs,
             confidence=cached.confidence,
+            overrun_probability=cached.overrun_probability,
+            cold_start_fallback=cached.cold_start_fallback,
             survival_curve=cached.survival_curve or [],
             feature_contributions=cached.feature_contributions or [],
             model_version=cached.model_version,
@@ -70,6 +74,8 @@ def get_segment_risk(db: Session, segment_id: str) -> RiskPredictionResponse:
         expected_downtime_days=pred.expected_downtime_days,
         preventive_block_duration_hrs=pred.preventive_block_duration_hrs,
         confidence=pred.confidence,
+        overrun_probability=pred.overrun_probability,
+        cold_start_fallback=pred.cold_start_fallback,
         survival_curve=pred.survival_curve or [],
         feature_contributions=pred.feature_contributions or [],
         model_version=pred.model_version,
@@ -89,6 +95,9 @@ def get_risk_data_map(db: Session) -> dict[str, dict]:
                 "expected_downtime_days": cached.expected_downtime_days,
                 "preventive_block_duration_hrs": cached.preventive_block_duration_hrs,
                 "confidence": cached.confidence,
+                "overrun_probability": cached.overrun_probability,
+                "cold_start_fallback": cached.cold_start_fallback,
+                "survival_curve": cached.survival_curve or [],
                 "feature_contributions": cached.feature_contributions or [],
             }
         else:
@@ -100,6 +109,8 @@ def get_risk_data_map(db: Session) -> dict[str, dict]:
                 "expected_downtime_days": pred_data["expected_downtime_days"],
                 "preventive_block_duration_hrs": pred_data["preventive_block_duration_hrs"],
                 "confidence": pred_data["confidence"],
+                "overrun_probability": pred_data.get("overrun_probability"),
+                "cold_start_fallback": pred_data.get("cold_start_fallback", False),
                 "survival_curve": pred_data.get("survival_curve"),
                 "feature_contributions": pred_data.get("feature_contributions"),
                 "model_version": pred_data.get("model_version"),
@@ -119,6 +130,8 @@ def _compute_and_store(db: Session, seg):
         "expected_downtime_days": pred_data["expected_downtime_days"],
         "preventive_block_duration_hrs": pred_data["preventive_block_duration_hrs"],
         "confidence": pred_data["confidence"],
+        "overrun_probability": pred_data.get("overrun_probability"),
+        "cold_start_fallback": pred_data.get("cold_start_fallback", False),
         "survival_curve": pred_data.get("survival_curve"),
         "feature_contributions": pred_data.get("feature_contributions"),
         "model_version": pred_data.get("model_version"),

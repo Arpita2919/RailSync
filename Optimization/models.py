@@ -45,6 +45,11 @@ class MaintenanceTask:
     horizon: str = "WEEKLY"  # 'WEEKLY' or 'MONTHLY'
     weibull_lambda: Optional[float] = None  # Scale parameter for Layer 1 survival curve
     weibull_k: Optional[float] = None  # Shape parameter for Layer 1 survival curve
+    expected_downtime_days: Optional[float] = None  # ML expected asset downtime in days
+    overrun_probability: Optional[float] = None  # ML predicted maintenance overrun probability [0, 1]
+    confidence: Optional[str] = None  # ML prediction confidence ('high', 'medium', 'low')
+    cold_start_fallback: Optional[bool] = None  # True if cold start prior was used
+    survival_curve: Optional[List[Dict[str, Any]]] = None  # Empirical Layer 1 daily survival points
 
     def is_high_risk_critical(self, high_risk_threshold: float = 0.70) -> bool:
         """Helper to determine if task is a critical-safety job requiring immediate scheduling."""

@@ -96,6 +96,8 @@ class RiskPrediction(Base):
     expected_downtime_days = Column(Float, nullable=False)
     preventive_block_duration_hrs = Column(Float, nullable=False)
     confidence = Column(String(16), nullable=False)  # high, medium, low
+    overrun_probability = Column(Float, nullable=True)
+    cold_start_fallback = Column(Boolean, nullable=True, default=False)
     survival_curve = Column(JSONB, nullable=True)
     feature_contributions = Column(JSONB, nullable=True)
     model_version = Column(String(32), nullable=True)

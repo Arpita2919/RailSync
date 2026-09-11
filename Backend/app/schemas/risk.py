@@ -25,6 +25,8 @@ class RiskPredictionResponse(BaseModel):
     expected_downtime_days: float
     preventive_block_duration_hrs: float
     confidence: str
+    overrun_probability: Optional[float] = None
+    cold_start_fallback: Optional[bool] = None
     survival_curve: list[SurvivalPoint] = []
     feature_contributions: list[FeatureContribution] = []
     model_version: Optional[str] = None
@@ -41,3 +43,5 @@ class SegmentRiskSummary(BaseModel):
     expected_downtime_days: float
     preventive_block_duration_hrs: float
     confidence: str
+    overrun_probability: Optional[float] = None
+    cold_start_fallback: Optional[bool] = None

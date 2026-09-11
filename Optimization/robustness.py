@@ -83,6 +83,24 @@ class SurvivalCurveModel:
         return failure_time_days
 
     @staticmethod
+    def sample_from_empirical_curve(
+        survival_curve: List[Dict[str, Any]],
+        random_state: Optional[random.Random] = None,
+    ) -> float:
+        """
+        Samples failure time directly from Layer 1 empirical discrete survival points.
+        Returns the first day where (1 - survival_probability) >= u ~ Uniform(0, 1).
+        """
+        rng = random_state or random
+        u = rng.random()
+        for pt in survival_curve:
+            d = pt.get("day") or pt.get("forecast_day", 1)
+            sp = pt.get("survival_probability")
+            if sp is not None and (1.0 - float(sp)) >= u:
+                return float(d)
+        return 999.0
+
+    @staticmethod
     def get_survival_probability(t_days: float, scale_lambda: float, shape_k: float) -> float:
         """Returns survival probability S(t) at day t."""
         return math.exp(-((t_days / scale_lambda) ** shape_k))
@@ -174,12 +192,18 @@ class ScenarioRobustnessEngine:
             scenario_feasible = True
 
             for t in tasks:
-                scale_lambda, shape_k = task_weibull[t.task_id]
-                failure_day = SurvivalCurveModel.sample_failure_time(
-                    scale_lambda=scale_lambda,
-                    shape_k=shape_k,
-                    random_state=rng,
-                )
+                if t.survival_curve and len(t.survival_curve) > 0:
+                    failure_day = SurvivalCurveModel.sample_from_empirical_curve(
+                        survival_curve=t.survival_curve,
+                        random_state=rng,
+                    )
+                else:
+                    scale_lambda, shape_k = task_weibull[t.task_id]
+                    failure_day = SurvivalCurveModel.sample_failure_time(
+                        scale_lambda=scale_lambda,
+                        shape_k=shape_k,
+                        random_state=rng,
+                    )
 
                 # Check if asset failure occurs within the planning horizon
                 if failure_day <= planning_horizon_days:
