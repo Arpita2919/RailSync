@@ -457,6 +457,9 @@ def _map_optimization_result_to_response(
                 "reason": st.remarks,
                 "explanation": explanation,
                 "consolidation_group": meta.get("consolidation_group"),
+                "status": st.status,
+                "assigned_block": st.assigned_block,
+                "why": st.remarks or explanation.get("primary_reason", ""),
                 "constraint_summary": {
                     "assigned_block": st.assigned_block,
                     "freight_delay_penalty": st.freight_penalty_score,

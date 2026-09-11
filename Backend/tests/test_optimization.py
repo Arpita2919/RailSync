@@ -167,3 +167,55 @@ def test_advanced_layer3_endpoints(client):
     assert "contingencies" in planb_data
     assert len(planb_data["contingencies"]) >= 1
 
+
+def test_frontend_optimization_api_aliases(client):
+    """Verify frontend aliases: GET /optimize, POST /what-if, GET /optimize/policies, GET /optimize/contingencies."""
+    client.post("/ingest/tasks", json={
+        "task_id": "TASK-ALIAS-01",
+        "segment_id": "SEG-TEST-001",
+        "department": "TRACK",
+        "task_type": "Track Inspection",
+        "claimed_criticality": 4,
+        "min_duration_hrs": 2.0,
+    })
+
+    # GET /optimize
+    resp_get_opt = client.get("/optimize?policy=balanced&horizon=weekly")
+    assert resp_get_opt.status_code == 200
+    data_get_opt = resp_get_opt.json()
+    assert "assignments" in data_get_opt
+    assert len(data_get_opt["assignments"]) > 0
+    first_a = data_get_opt["assignments"][0]
+    assert "status" in first_a
+    assert "assigned_block" in first_a
+    assert "why" in first_a
+
+    # POST /what-if alias with event_type and event_time
+    resp_whatif_alias = client.post("/what-if", json={
+        "event_type": "RAIL_FRACTURE",
+        "segment_id": "SEG-TEST-001",
+        "event_time": "11:30",
+        "severity": "emergency",
+        "description": "Emergency rail crack at 11:30 AM",
+    })
+    assert resp_whatif_alias.status_code == 200
+    whatif_data = resp_whatif_alias.json()
+    assert whatif_data["feasible"] is True
+    assert "changed_assignments" in whatif_data
+
+    # GET /optimize/policies alias
+    resp_pol = client.get("/optimize/policies")
+    assert resp_pol.status_code == 200
+    assert len(resp_pol.json()["points"]) == 3
+
+    # GET /optimize/contingencies alias
+    resp_cont = client.get("/optimize/contingencies")
+    assert resp_cont.status_code == 200
+    assert "contingencies" in resp_cont.json()
+
+
+def test_invalid_policy_input_validation(client):
+    """Verify that invalid policies are rejected with HTTP 422 Unprocessable Entity."""
+    resp = client.post("/optimize", json={"policy": "INVALID_POLICY", "horizon": "weekly"})
+    assert resp.status_code == 422
+

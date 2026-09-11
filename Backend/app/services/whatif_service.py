@@ -43,32 +43,55 @@ def run_whatif(db: Session, request: WhatIfRequest) -> WhatIfResponse:
         tasks = task_service.get_pending_tasks(db)
         risk_data = risk_service.get_risk_data_map(db)
 
-        # 2. Build DisruptionScenario
+        event_type = request.type or request.event_type
+        event_time_str = request.time or request.event_time
         scenario_id = request.scenario_id or f"SCN-{uuid.uuid4().hex[:6].upper()}"
-        description = request.description or f"Disruption simulation for {request.type or 'unplanned event'}"
+        description = request.description or f"Disruption simulation for {event_type or 'unplanned event'}"
 
         emergency_tasks: list[MaintenanceTask] = []
         if request.emergency_tasks:
             for et in request.emergency_tasks:
                 emergency_tasks.append(layer3.transform_task(et, risk_data))
 
-        # Backward compatibility: if type & segment_id provided, create synthetic emergency task
-        if request.type and request.segment_id:
+        # Support synthetic emergency task from event parameters
+        if event_type and request.segment_id:
             synth_task = _create_disruption_task(request)
             emergency_tasks.append(layer3.transform_task(synth_task, risk_data))
+
+        timetable = generate_timetable(seed=42)
+        base_date = datetime(2026, 9, 15, 0, 0, 0)
+        all_blocks = layer3.build_block_windows(timetable=timetable, horizon_days=7, base_date=base_date)
+
+        # Enforce chronological consistency: elapsed blocks cannot receive newly injected emergencies
+        cancelled_blocks_set = set(request.cancelled_blocks or [])
+        if event_time_str:
+            parse_hr = 0
+            parse_mn = 0
+            try:
+                parts = event_time_str.split(" ")[-1].split(":")
+                parse_hr = int(parts[0])
+                parse_mn = int(parts[1]) if len(parts) > 1 else 0
+            except (ValueError, IndexError):
+                pass
+
+            event_dt = base_date.replace(hour=parse_hr, minute=parse_mn)
+            for b in all_blocks:
+                try:
+                    b_end = datetime.strptime(b.end_time, "%Y-%m-%d %H:%M")
+                    if b_end <= event_dt:
+                        cancelled_blocks_set.add(b.block_id)
+                except Exception:
+                    pass
 
         disruption = DisruptionScenario(
             scenario_id=scenario_id,
             description=description,
             emergency_tasks=emergency_tasks,
-            cancelled_blocks=request.cancelled_blocks or [],
+            cancelled_blocks=list(cancelled_blocks_set),
             modified_passenger_conflicts=request.modified_passenger_conflicts or {},
             modified_block_durations=request.modified_block_durations or {},
             locked_assignments=request.locked_assignments or {},
         )
-
-        timetable = generate_timetable(seed=42)
-        base_date = datetime(2026, 9, 15, 0, 0, 0)
 
         # 3. Invoke Layer 3 Fast Re-optimization
         whatif_res: WhatIfResult = layer3.run_fast_reoptimization(
@@ -200,6 +223,9 @@ def run_whatif(db: Session, request: WhatIfRequest) -> WhatIfResponse:
                         "is_high_risk": st.is_high_risk_critical,
                     },
                     consolidation_group=meta.get("consolidation_group"),
+                    status=st.status,
+                    assigned_block=st.assigned_block,
+                    why=st.remarks or "Assigned after emergency re-optimization",
                 )
                 plan_b_assignments.append(a_out)
 

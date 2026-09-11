@@ -41,11 +41,13 @@ class WhatIfRequest(BaseModel):
     modified_block_durations: Optional[dict[str, float]] = None
     locked_assignments: Optional[dict[str, str]] = None
 
-    # Backward compatibility fields
-    type: Optional[str] = Field(default=None)
-    segment_id: Optional[str] = Field(default=None)
-    time: Optional[str] = None
-    severity: Optional[str] = Field(default="moderate")
+    # Event fields & Frontend aliases
+    type: Optional[str] = Field(default=None, description="Disruption event type, e.g. RAIL_FRACTURE, OHE_BREAKDOWN")
+    event_type: Optional[str] = Field(default=None, description="Alias for type")
+    segment_id: Optional[str] = Field(default=None, description="Affected corridor segment, e.g. SEG-039")
+    time: Optional[str] = Field(default=None, description="Event occurrence time, e.g. 11:30 or 2026-09-15 11:30")
+    event_time: Optional[str] = Field(default=None, description="Alias for time")
+    severity: Optional[str] = Field(default="moderate", description="Severity level: low, moderate, high, critical, emergency")
 
 
 class AssignmentOut(BaseModel):
@@ -62,6 +64,9 @@ class AssignmentOut(BaseModel):
     explanation: Optional[dict[str, Any]] = None
     constraint_summary: Optional[dict[str, Any]] = None
     consolidation_group: Optional[str] = None
+    status: str = Field(default="SCHEDULED", description="Assignment status: SCHEDULED, UNASSIGNED, RESCHEDULED")
+    assigned_block: Optional[str] = Field(default=None, description="Assigned possession block window ID, e.g. BLK-D1-NIGHT")
+    why: Optional[str] = Field(default=None, description="Human-readable explanation of why this block was selected")
 
     model_config = {"from_attributes": True}
 
