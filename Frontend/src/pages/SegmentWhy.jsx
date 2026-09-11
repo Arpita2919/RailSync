@@ -1,336 +1,262 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import {
+  getRiskSegments, getSegmentRisk,
+  riskLevel, formatDuration,
+} from '../services/api';
 
 export default function SegmentWhy() {
   const [bookingState, setBookingState] = useState('idle');
-  const [simulatedRepair, setSimulatedRepair] = useState(false);
+  const [selectedSegId, setSelectedSegId] = useState(null);
+
+  // Real data
+  const [segments, setSegments] = useState([]);
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const segs = await getRiskSegments();
+      setSegments(segs);
+      // Auto-select highest risk segment
+      if (segs.length > 0) {
+        const highest = segs.reduce((a, b) => a.risk_30d > b.risk_30d ? a : b);
+        await selectSegment(highest.segment_id);
+      }
+    } catch {} finally {
+      setLoading(false);
+    }
+  };
+
+  const selectSegment = async (segId) => {
+    setSelectedSegId(segId);
+    try {
+      const d = await getSegmentRisk(segId);
+      setDetail(d);
+    } catch {
+      setDetail(null);
+    }
+  };
 
   const handleBookBlock = () => {
     if (bookingState !== 'idle') return;
     setBookingState('transmitting');
-    setTimeout(() => {
-      setBookingState('requested');
-    }, 1200);
+    setTimeout(() => setBookingState('requested'), 1200);
   };
 
-  const handleSimulateFix = () => {
-    setSimulatedRepair((prev) => !prev);
-  };
+  if (loading) {
+    return (
+      <main className="flex flex-col relative w-full">
+        <div className="flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-space-sm">
+            <span className="material-symbols-outlined text-[32px] text-primary animate-spin">autorenew</span>
+            <span className="font-code-sm text-code-sm text-on-surface-variant">Loading segment risk analysis from ML model...</span>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (!detail) {
+    return (
+      <main className="flex flex-col relative w-full p-gutter">
+        <div className="text-center py-space-lg font-headline-sm text-headline-sm text-on-surface-variant">
+          No segment data available. Check Layer 1 connection.
+        </div>
+      </main>
+    );
+  }
+
+  const rl = riskLevel(detail.risk_30d);
+  const isCritical = rl.label === 'CRITICAL';
+  const isHigh = rl.label === 'HIGH' || isCritical;
 
   return (
     <main className="flex flex-col relative w-full">
       <div className="flex flex-col w-full gap-space-md p-space-md">
-        {/* Asset Identity & Risk Summary Master Deck */}
+        {/* Segment Selector */}
+        <div className="flex items-center gap-space-xs overflow-x-auto no-scrollbar bg-surface-container p-space-xs rounded">
+          <span className="font-label-caps text-label-caps text-on-surface-variant shrink-0">SEGMENT:</span>
+          {segments.sort((a, b) => b.risk_30d - a.risk_30d).slice(0, 8).map(seg => {
+            const segRl = riskLevel(seg.risk_30d);
+            return (
+              <button
+                key={seg.segment_id}
+                onClick={() => selectSegment(seg.segment_id)}
+                className={`px-space-sm py-1 rounded font-code-sm text-code-sm shrink-0 transition-colors ${
+                  selectedSegId === seg.segment_id
+                    ? (segRl.label === 'CRITICAL' ? 'bg-error text-on-error font-bold' : 'bg-primary text-on-primary font-bold')
+                    : 'bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high'
+                }`}
+              >
+                {seg.segment_id.length > 14 ? seg.segment_id.slice(0, 14) + '…' : seg.segment_id}
+                <span className="ml-1 text-[10px]">({(seg.risk_30d * 100).toFixed(0)}%)</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Asset Identity & Risk Summary */}
         <section className="flex flex-col w-full bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden">
-          {/* Top Telemetry Pill Strip */}
           <div className="flex flex-wrap items-center justify-between gap-space-xs px-space-md py-space-xs bg-surface-container text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider">
             <div className="flex items-center gap-space-xs">
-              <span className={`w-2 h-2 rounded-full ${simulatedRepair ? 'bg-on-tertiary-container' : 'bg-error animate-pulse'}`}></span>
-              <span>DIVISION: PRYJ / NORTH CENTRAL RAILWAY</span>
+              <span className={`w-2 h-2 rounded-full ${isCritical ? 'bg-error animate-pulse' : isHigh ? 'bg-secondary' : 'bg-on-tertiary-container'}`}></span>
+              <span>LAYER 1 ML RISK PREDICTION</span>
             </div>
             <div className="flex items-center gap-space-sm font-code-sm text-code-sm normal-case">
-              <span>
-                LAST USFD INSPECTION: <strong className="text-on-surface">21-OCT-2024</strong>
-              </span>
+              <span>Model: <strong className="text-on-surface">{detail.model_version || 'Trained XGBoost-Weibull'}</strong></span>
             </div>
           </div>
 
-          {/* Segment Header Core Metrics */}
           <div className="p-space-md flex flex-col gap-space-md">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
               <div className="flex flex-col">
                 <div className="flex items-center gap-space-xs">
-                  <span className="font-headline-xl text-headline-xl text-primary tracking-tight font-bold">KRJ-UP-04</span>
-                  <span
-                    className={`inline-flex items-center px-space-xs py-0.5 rounded font-label-caps text-label-caps uppercase ${
-                      simulatedRepair ? 'bg-tertiary-container text-tertiary-fixed font-bold' : 'bg-error text-on-error'
-                    }`}
-                  >
-                    {simulatedRepair ? 'POST-REPAIR MITIGATED' : 'CRITICAL RISK'}
+                  <span className="font-headline-xl text-headline-xl text-primary tracking-tight font-bold">{detail.segment_id}</span>
+                  <span className={`inline-flex items-center px-space-xs py-0.5 rounded font-label-caps text-label-caps uppercase ${
+                    isCritical ? 'bg-error text-on-error' : isHigh ? 'bg-secondary-container text-on-secondary-container' : 'bg-tertiary-container text-tertiary-fixed font-bold'
+                  }`}>
+                    {rl.label} RISK
                   </span>
                 </div>
-                <span className="font-body-md text-body-md text-on-surface-variant">
-                  Khurja Jn – Somna UP Mainline • Km 1071.800 to Km 1073.400
+                <span className="font-code-sm text-code-sm text-secondary mt-0.5">
+                  Confidence: {detail.confidence} • {detail.feature_contributions?.length || 0} features analyzed
                 </span>
               </div>
 
-              {/* Live Risk Percentage Metric */}
-              <div className="flex items-baseline sm:items-end flex-col bg-surface-container-low px-space-md py-space-xs rounded-lg">
-                <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">30-DAY FAILURE RISK</span>
-                <div className="flex items-baseline gap-space-xs">
-                  <span className={`font-code-lg text-headline-xl font-bold ${simulatedRepair ? 'text-on-tertiary-container' : 'text-error'}`}>
-                    {simulatedRepair ? '29.1%' : '87.4%'}
+              <div className="flex items-center gap-space-md bg-surface-container px-space-md py-space-sm rounded-lg">
+                <div className="text-center">
+                  <span className={`font-headline-xl text-headline-xl font-bold ${isCritical ? 'text-error' : 'text-on-surface'}`}>
+                    {(detail.risk_30d * 100).toFixed(1)}%
                   </span>
-                  <span className="font-code-sm text-code-sm text-on-surface-variant">prob.</span>
+                  <span className="font-label-caps text-label-caps text-on-surface-variant block">30-DAY RISK</span>
                 </div>
-              </div>
-            </div>
-
-            {/* Quick Operational Metrics Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-space-xs pt-space-xs">
-              <div className="flex flex-col p-space-sm bg-surface-container-low rounded">
-                <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">AI Confidence Metric</span>
-                <span className="font-code-md text-code-md font-semibold text-primary">94.2%</span>
-                <span className="font-body-sm text-body-sm text-on-surface-variant truncate">Ensemble GBM + Weibull</span>
-              </div>
-              <div className="flex flex-col p-space-sm bg-secondary-container rounded">
-                <span className="font-label-caps text-label-caps text-on-secondary-container uppercase">Recommended Block</span>
-                <span className="font-code-md text-code-md font-bold text-on-secondary-fixed">90 Minutes</span>
-                <span className="font-body-sm text-body-sm text-on-secondary-container">Urgent within 48h window</span>
-              </div>
-              <div className="flex flex-col p-space-sm bg-surface-container-low rounded">
-                <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">Potential Unplanned Loss</span>
-                <span className={`font-code-md text-code-md font-bold ${simulatedRepair ? 'text-on-tertiary-container' : 'text-error'}`}>
-                  {simulatedRepair ? '35 Min Downtime' : '280 Min Downtime'}
-                </span>
-                <span className="font-body-sm text-body-sm text-on-surface-variant">
-                  {simulatedRepair ? 'Est. Normal buffer flow' : 'Est. ~14 passenger rakes held'}
-                </span>
+                <div className="h-10 w-[1px] bg-outline-variant"></div>
+                <div className="text-center">
+                  <span className="font-headline-xl text-headline-xl font-bold text-on-surface">
+                    {detail.expected_downtime_days?.toFixed(1)}
+                  </span>
+                  <span className="font-label-caps text-label-caps text-on-surface-variant block">DOWNTIME DAYS</span>
+                </div>
+                <div className="h-10 w-[1px] bg-outline-variant"></div>
+                <div className="text-center">
+                  <span className="font-headline-xl text-headline-xl font-bold text-on-surface">
+                    {formatDuration(detail.preventive_block_duration_hrs)}
+                  </span>
+                  <span className="font-label-caps text-label-caps text-on-surface-variant block">BLOCK NEEDED</span>
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Plain English Synthesis Banner */}
-        <section className="flex items-start gap-space-sm p-space-md rounded-xl bg-surface-container-high shadow-sm">
-          <div className="w-8 h-8 rounded-lg bg-primary-container text-on-primary flex items-center justify-center shrink-0 mt-0.5">
-            <span className="material-symbols-outlined text-[18px]">psychology</span>
+        {/* Feature Contributions — WHY this risk? */}
+        <section className="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden">
+          <div className="px-space-md py-space-sm bg-surface-container flex items-center gap-space-xs">
+            <span className="material-symbols-outlined text-[18px] text-primary">psychology</span>
+            <span className="font-headline-sm text-headline-sm text-on-surface">"Why?" — ML Feature Contributions</span>
           </div>
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-space-xs">
-              <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">PRIMARY DRIVER REASONING</span>
-              <span className="font-label-caps text-label-caps px-space-xs rounded bg-surface-container-lowest text-primary font-bold">
-                SYNTHESIS
+
+          <div className="p-space-md flex flex-col gap-space-sm">
+            {(detail.feature_contributions || []).length === 0 ? (
+              <span className="font-code-sm text-code-sm text-on-surface-variant text-center py-space-md">
+                Feature contributions not available for this segment.
               </span>
-            </div>
-            <p className="font-body-md text-body-md text-on-surface leading-snug">
-              Key drivers: <span className="font-semibold text-error">2 ultrasonic weld flaws</span>, track degradation past{' '}
-              <span className="font-semibold text-on-surface">36 MGT</span>, and deep screening overdue by{' '}
-              <span className="font-semibold text-error">4.2 yrs</span>.
-            </p>
+            ) : (
+              detail.feature_contributions
+                .filter(fc => (fc.importance ?? fc.contribution ?? 0) > 0)
+                .slice(0, 8)
+                .map((fc, i) => {
+                  const score = fc.contribution ?? fc.importance ?? 0;
+                  const pct = (Math.abs(score) * 100).toFixed(1);
+                  return (
+                    <div key={i} className="flex items-center gap-space-sm p-space-sm bg-surface-container-low rounded">
+                      <span className="font-code-sm text-code-sm text-on-surface font-bold w-6 text-center">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="font-code-sm text-code-sm text-on-surface font-semibold truncate">{fc.name}</span>
+                          <span className="font-code-sm text-code-sm font-bold text-error">
+                            +{pct}%
+                          </span>
+                        </div>
+                        <div className="w-full h-2 bg-surface-container-high rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all bg-error"
+                            style={{ width: `${Math.min(Math.abs(score) * 200, 100)}%` }}
+                          ></div>
+                        </div>
+                        <span className="font-body-sm text-body-sm text-on-surface-variant">
+                          {fc.value != null ? `Value: ${typeof fc.value === 'number' ? fc.value.toFixed(3) : fc.value} • ` : ''}Feature Importance: {pct}%
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+            )}
           </div>
         </section>
 
-        {/* SHAP-Style Explainable Feature Contribution Vector */}
-        <section className="flex flex-col w-full bg-surface-container-lowest rounded-xl p-space-md shadow-sm gap-space-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-space-xs">
-              <span className="material-symbols-outlined text-primary text-[20px]">troubleshoot</span>
-              <h2 className="font-headline-sm text-headline-sm text-primary">SHAP Factor Attribution (Impact on Risk)</h2>
+        {/* Survival Curve */}
+        {detail.survival_curve?.length > 0 && (
+          <section className="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden">
+            <div className="px-space-md py-space-sm bg-surface-container flex items-center gap-space-xs">
+              <span className="material-symbols-outlined text-[18px] text-secondary">show_chart</span>
+              <span className="font-headline-sm text-headline-sm text-on-surface">Survival Curve (Weibull Model)</span>
             </div>
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">BASELINE: 0.12 (STANDARD TRACK)</span>
-          </div>
-          <p className="font-body-sm text-body-sm text-on-surface-variant">
-            Attribution scores show relative deviation pushing failure probability toward 87.4%. Positive delta increases danger; negative delta preserves integrity.
-          </p>
+            <div className="p-space-md">
+              <div className="flex items-end gap-[2px] h-32 px-space-xs">
+                {detail.survival_curve.map((pt, i) => {
+                  const barPct = pt.survival_probability * 100;
+                  return (
+                    <div
+                      key={i}
+                      className={`flex-1 rounded-t transition-all ${
+                        pt.survival_probability > 0.9 ? 'bg-tertiary-fixed-dim' :
+                        pt.survival_probability > 0.7 ? 'bg-secondary-fixed-dim' :
+                        pt.survival_probability > 0.5 ? 'bg-secondary' : 'bg-error'
+                      }`}
+                      style={{ height: `${barPct}%` }}
+                      title={`Day ${pt.day}: ${barPct.toFixed(1)}% survival`}
+                    ></div>
+                  );
+                })}
+              </div>
+              <div className="flex justify-between font-code-sm text-code-sm text-on-surface-variant mt-space-xs px-space-xs">
+                <span>Day 0 (100%)</span>
+                <span>Day {detail.survival_curve[detail.survival_curve.length - 1]?.day} ({(detail.survival_curve[detail.survival_curve.length - 1]?.survival_probability * 100).toFixed(1)}%)</span>
+              </div>
+            </div>
+          </section>
+        )}
 
-          {/* Factor 1 */}
-          <div className="flex flex-col gap-1 pt-space-xs">
-            <div className="flex justify-between items-baseline font-code-sm text-code-sm">
-              <span className="font-medium text-on-surface truncate">1. Severe Weld Flaws (USFD Class III)</span>
-              <span className={`font-bold shrink-0 ${simulatedRepair ? 'text-on-tertiary-container' : 'text-error'}`}>
-                {simulatedRepair ? '-0.15 (Repaired)' : '+0.38 (+38%)'}
+        {/* Action Footer */}
+        <div className="bg-surface-container-lowest rounded-xl shadow-sm p-space-md flex flex-col sm:flex-row items-center justify-between gap-space-sm">
+          <div className="flex items-center gap-space-sm">
+            <span className="material-symbols-outlined text-primary text-[24px]">assignment_add</span>
+            <div className="flex flex-col">
+              <span className="font-headline-sm text-headline-sm text-on-surface font-bold">
+                Recommended: {formatDuration(detail.preventive_block_duration_hrs)} maintenance block
+              </span>
+              <span className="font-code-sm text-code-sm text-on-surface-variant">
+                Based on trained ML model prediction • Confidence: {detail.confidence}
               </span>
             </div>
-            <div className="w-full h-3 bg-surface-container rounded-sm overflow-hidden flex">
-              <div
-                className={`h-full rounded-sm transition-all duration-500 ${simulatedRepair ? 'bg-on-tertiary-container' : 'bg-error'}`}
-                style={{ width: simulatedRepair ? '20%' : '78%' }}
-              ></div>
-            </div>
           </div>
-
-          {/* Factor 2 */}
-          <div className="flex flex-col gap-1 pt-space-xs">
-            <div className="flex justify-between items-baseline font-code-sm text-code-sm">
-              <span className="font-medium text-on-surface truncate">2. Cumulative Gross Tonnage (Overdue MGT)</span>
-              <span className="font-bold text-secondary shrink-0">+0.24 (+24%)</span>
-            </div>
-            <div className="w-full h-3 bg-surface-container rounded-sm overflow-hidden flex">
-              <div className="h-full bg-secondary rounded-sm transition-all duration-500" style={{ width: '52%' }}></div>
-            </div>
-          </div>
-
-          {/* Factor 3 */}
-          <div className="flex flex-col gap-1 pt-space-xs">
-            <div className="flex justify-between items-baseline font-code-sm text-code-sm">
-              <span className="font-medium text-on-surface truncate">3. Ambient Rail Temperature Delta</span>
-              <span className="font-bold text-secondary shrink-0">+0.14 (+14%)</span>
-            </div>
-            <div className="w-full h-3 bg-surface-container rounded-sm overflow-hidden flex">
-              <div className="h-full bg-secondary rounded-sm transition-all duration-500" style={{ width: '32%' }}></div>
-            </div>
-          </div>
-
-          {/* Factor 4 */}
-          <div className="flex flex-col gap-1 pt-space-xs">
-            <div className="flex justify-between items-baseline font-code-sm text-code-sm">
-              <span className="font-medium text-on-surface truncate">4. Asset Age &amp; Deep Metal Fatigue</span>
-              <span className="font-bold text-secondary-container text-on-secondary-fixed shrink-0">+0.11 (+11%)</span>
-            </div>
-            <div className="w-full h-3 bg-surface-container rounded-sm overflow-hidden flex">
-              <div className="h-full bg-outline rounded-sm transition-all duration-500" style={{ width: '24%' }}></div>
-            </div>
-          </div>
-
-          {/* Factor 5 */}
-          <div className="flex flex-col gap-1 pt-space-xs">
-            <div className="flex justify-between items-baseline font-code-sm text-code-sm">
-              <span className="font-medium text-on-surface truncate">5. S&amp;T Track Circuit Telemetry Variance</span>
-              <span className="font-bold text-on-surface-variant shrink-0">+0.07 (+7%)</span>
-            </div>
-            <div className="w-full h-3 bg-surface-container rounded-sm overflow-hidden flex">
-              <div className="h-full bg-outline-variant rounded-sm transition-all duration-500" style={{ width: '16%' }}></div>
-            </div>
-          </div>
-
-          {/* Factor 6 */}
-          <div className="flex flex-col gap-1 pt-space-xs">
-            <div className="flex justify-between items-baseline font-code-sm text-code-sm">
-              <span className="font-medium text-on-surface truncate">6. Fastener Elastic Rail Clip (ERC) Renewal</span>
-              <span className="font-bold text-on-tertiary-container shrink-0">-0.06 (-6%)</span>
-            </div>
-            <div className="w-full h-3 bg-surface-container rounded-sm overflow-hidden flex">
-              <div className="h-full bg-on-tertiary-container rounded-sm transition-all duration-500" style={{ width: '12%' }}></div>
-            </div>
-          </div>
-        </section>
-
-        {/* Recent Track Inspection & Defect Log */}
-        <section className="flex flex-col w-full bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden">
-          <div className="px-space-md py-space-sm bg-surface-container flex items-center justify-between">
-            <div className="flex items-center gap-space-xs">
-              <span className="material-symbols-outlined text-[18px] text-primary">history</span>
-              <h3 className="font-headline-sm text-headline-sm text-primary">Telemetry Inspection &amp; Defect Registry</h3>
-            </div>
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">PAST 30 DAYS</span>
-          </div>
-
-          {/* Defect Feed Items */}
-          <div className="flex flex-col">
-            {/* Item 1: High Priority USFD */}
-            <div className="flex flex-col p-space-md border-b-0 bg-error-container/20">
-              <div className="flex items-center justify-between gap-space-xs">
-                <div className="flex items-center gap-space-xs">
-                  <span className="font-code-sm text-code-sm font-bold text-on-error-container">21-OCT-2024</span>
-                  <span className="font-label-caps text-label-caps px-space-xs py-0.5 rounded bg-error text-on-error uppercase font-bold">
-                    Priority 1
-                  </span>
-                </div>
-                <span className="font-code-sm text-code-sm text-on-surface-variant">USFD #W-882</span>
-              </div>
-              <span className="font-body-md text-body-md font-semibold text-on-surface mt-1">
-                Alumino-Thermic (AT) Weld Fissure (0.8mm internal micro-crack)
-              </span>
-              <div className="flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant mt-1">
-                <span>Km 1072.300 • Joint ID: KRJ-SOM-W14</span>
-                <span className="font-code-sm text-code-sm font-bold text-error">IMMEDIATE CLAMP / RENEWAL</span>
-              </div>
-            </div>
-
-            {/* Item 2: OMS-2000 */}
-            <div className="flex flex-col p-space-md bg-surface-container-lowest">
-              <div className="flex items-center justify-between gap-space-xs">
-                <div className="flex items-center gap-space-xs">
-                  <span className="font-code-sm text-code-sm font-bold text-on-surface">14-OCT-2024</span>
-                  <span className="font-label-caps text-label-caps px-space-xs py-0.5 rounded bg-secondary-container text-on-secondary-fixed uppercase font-bold">
-                    Caution Order
-                  </span>
-                </div>
-                <span className="font-code-sm text-code-sm text-on-surface-variant">OMS-2000 RUN #604</span>
-              </div>
-              <span className="font-body-md text-body-md text-on-surface mt-1">
-                High vertical track acceleration peak of <strong className="font-code-sm">0.34g</strong> registered at Km 1072.100
-              </span>
-              <div className="flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant mt-1">
-                <span>Speed restricted to 50 km/h under Special TSR</span>
-                <span className="font-label-caps text-label-caps text-secondary font-semibold">TSR ACTIVE</span>
-              </div>
-            </div>
-
-            {/* Item 3: P-Way Inspection */}
-            <div className="flex flex-col p-space-md bg-surface-container-low">
-              <div className="flex items-center justify-between gap-space-xs">
-                <div className="flex items-center gap-space-xs">
-                  <span className="font-code-sm text-code-sm font-bold text-on-surface">02-OCT-2024</span>
-                  <span className="font-label-caps text-label-caps px-space-xs py-0.5 rounded bg-tertiary-container text-tertiary-fixed uppercase font-bold">
-                    Completed
-                  </span>
-                </div>
-                <span className="font-code-sm text-code-sm text-on-surface-variant">PW-SEC-ROUTINE</span>
-              </div>
-              <div className="flex items-center justify-between text-body-sm font-body-sm text-on-surface-variant mt-1">
-                <span>Km 1072.000 • Track Liners &amp; Rubber Sole Plates</span>
-                <span className="font-code-sm text-code-sm text-on-tertiary-container font-semibold">VERIFIED OK</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Interactive Action Trigger Bay */}
-        <section className="flex flex-col sm:flex-row gap-space-sm w-full">
           <button
             onClick={handleBookBlock}
             disabled={bookingState !== 'idle'}
-            className={`flex-1 flex items-center justify-center gap-space-xs px-space-md py-space-sm rounded-lg font-headline-sm text-headline-sm transition-all active:scale-[0.99] ${
-              bookingState === 'requested'
-                ? 'bg-tertiary-container text-tertiary-fixed'
-                : 'bg-primary-container text-on-primary hover:bg-primary'
-            }`}
+            className="px-space-lg py-space-sm rounded bg-primary text-on-primary font-code-md text-code-md font-bold shadow-sm flex items-center gap-space-xs"
           >
-            {bookingState === 'transmitting' ? (
-              <>
-                <span className="material-symbols-outlined text-[18px] animate-spin">refresh</span>
-                <span>Transmitting to COA Desk...</span>
-              </>
-            ) : bookingState === 'requested' ? (
-              <>
-                <span className="material-symbols-outlined text-[18px] text-tertiary-fixed">check_circle</span>
-                <span>Block Slot Requested (#BLK-KRJ-48H)</span>
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-[18px]">calendar_add_on</span>
-                <span>Request 90-Min Maintenance Block</span>
-              </>
-            )}
+            <span className="material-symbols-outlined text-[18px]">
+              {bookingState === 'transmitting' ? 'autorenew' : bookingState === 'requested' ? 'check_circle' : 'send'}
+            </span>
+            {bookingState === 'transmitting' ? 'TRANSMITTING...' : bookingState === 'requested' ? 'BLOCK REQUESTED ✓' : 'REQUEST BLOCK'}
           </button>
-
-          <button
-            onClick={handleSimulateFix}
-            className={`flex items-center justify-center gap-space-xs px-space-md py-space-sm rounded-lg font-headline-sm text-headline-sm transition-all active:scale-[0.99] ${
-              simulatedRepair
-                ? 'bg-on-tertiary-container text-on-primary'
-                : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
-            }`}
-          >
-            <span className="material-symbols-outlined text-[18px]">tune</span>
-            <span>{simulatedRepair ? 'Reset Simulation' : 'What-If: Simulate Weld Repair'}</span>
-          </button>
-        </section>
-
-        {/* Model Governance, Calibration & Section Authority Bar */}
-        <footer className="flex flex-col gap-space-xs p-space-md rounded-xl bg-surface-container text-on-surface-variant shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-space-xs font-label-caps text-label-caps uppercase tracking-wider">
-            <div className="flex items-center gap-space-xs">
-              <span className="material-symbols-outlined text-[14px]">shield</span>
-              <span>MODEL: RAILTWIN-RISK-V3.4.1 (XGBOOST + COX PROPORTIONAL HAZARD)</span>
-            </div>
-            <div className="flex items-center gap-space-xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-on-tertiary-container"></span>
-              <span>CALIBRATION: BSS 0.041 (OPTIMAL)</span>
-            </div>
-          </div>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-space-xs pt-space-xs font-code-sm text-code-sm text-on-surface">
-            <div className="flex items-center gap-space-xs">
-              <span className="text-on-surface-variant">Ingested Data Pipeline:</span>
-              <span className="font-semibold">CRIS / COA / USFD Digital Logger (14:21:05 IST)</span>
-            </div>
-            <div className="flex items-center gap-space-xs">
-              <span className="text-on-surface-variant">Section In-Charge:</span>
-              <span className="font-semibold">Sr. DEN / Co-ordination / PRYJ</span>
-            </div>
-          </div>
-        </footer>
+        </div>
       </div>
     </main>
   );

@@ -1,7 +1,9 @@
 """RailSync 2.0 — Layer 3 Integration Adapter: CP-SAT Optimization.
 
-Standalone OR-Tools CP-SAT solver for block planning.
-Handles safety-first / balanced / throughput-first policies.
+Bridge between backend services and the production Optimization engine.
+Converts service-layer dicts ↔ Optimization engine dataclasses while
+preserving the exact interface that optimization_service.py and
+whatif_service.py depend on.
 """
 
 from __future__ import annotations
@@ -11,176 +13,155 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
-from ortools.sat.python import cp_model
-
 from app.core.logging import get_logger
+
+# Import the production Optimization engine
+from Optimization import (
+    MaintenanceTask,
+    BlockWindow,
+    OptimizationResult,
+    OptimizerConfig,
+    RailSyncOptimizer,
+)
 
 log = get_logger("layer3")
 
-# Policy weight presets: (safety_weight, throughput_weight, consolidation_weight)
-POLICY_WEIGHTS = {
-    "safety_first": (0.7, 0.15, 0.15),
-    "balanced": (0.4, 0.35, 0.25),
-    "throughput_first": (0.15, 0.7, 0.15),
+# Policy string → OptimizerConfig factory
+_POLICY_CONFIG_MAP = {
+    "safety_first": OptimizerConfig.safety_first,
+    "balanced": OptimizerConfig.balanced,
+    "throughput_first": OptimizerConfig.throughput_first,
 }
 
-# Time discretization: 15-minute slots over a planning horizon
+# Time discretization for converting timetable → BlockWindows
 SLOT_MINUTES = 15
 DAILY_SLOTS = 24 * 60 // SLOT_MINUTES  # 96 slots per day
 
 
-def _time_to_slot(dt: datetime, base: datetime) -> int:
-    delta = dt - base
-    return max(0, int(delta.total_seconds() / (SLOT_MINUTES * 60)))
+# ──────────────────────────────────────────────────────────────
+# Internal helpers: convert service-layer dicts → engine objects
+# ──────────────────────────────────────────────────────────────
 
-
-def _slot_to_time(slot: int, base: datetime) -> datetime:
-    return base + timedelta(minutes=slot * SLOT_MINUTES)
-
-
-def _build_timetable_blocked(
-    timetable: list[dict[str, Any]],
-    base: datetime,
-    horizon_slots: int,
-) -> set[int]:
-    """Convert timetable entries into blocked slot indices."""
-    blocked = set()
-    for entry in timetable:
-        start_slot = _time_to_slot(entry["start"], base)
-        end_slot = _time_to_slot(entry["end"], base)
-        for s in range(max(0, start_slot), min(horizon_slots, end_slot + 1)):
-            blocked.add(s)
-    return blocked
-
-
-def optimize(
+def _tasks_to_dataclasses(
     tasks: list[dict[str, Any]],
     risk_data: dict[str, dict[str, Any]],
-    timetable: list[dict[str, Any]],
-    policy: str = "balanced",
-    horizon_days: int = 7,
-    base_date: datetime | None = None,
-    time_limit_seconds: float = 10.0,
-) -> dict[str, Any]:
-    """Run CP-SAT block plan optimization.
-
-    Args:
-        tasks: scored task pool (from Layer 2) with weighted_priority, min_duration_hrs, etc.
-        risk_data: segment_id → risk prediction
-        timetable: train passage windows to avoid
-        policy: safety_first | balanced | throughput_first
-        horizon_days: planning horizon in days
-        base_date: start of planning window
-        time_limit_seconds: solver time limit
-
-    Returns:
-        Normalized optimization result.
-    """
-    run_id = f"OPT-{datetime.now().strftime('%Y-%m')}-{uuid.uuid4().hex[:6].upper()}"
-    log.info("Optimization started run_id=%s policy=%s tasks=%d horizon=%dd",
-             run_id, policy, len(tasks), horizon_days)
-
-    if base_date is None:
-        base_date = datetime(2026, 9, 15, 0, 0, 0)
-
-    start_time = time.perf_counter()
-    horizon_slots = horizon_days * DAILY_SLOTS
-    weights = POLICY_WEIGHTS.get(policy, POLICY_WEIGHTS["balanced"])
-
-    if not tasks:
-        elapsed = int((time.perf_counter() - start_time) * 1000)
-        return _empty_result(run_id, policy, horizon_days, elapsed, "No tasks to schedule")
-
-    blocked = _build_timetable_blocked(timetable, base_date, horizon_slots)
-    # Maintenance blocks only during 00:00–06:00 and 10:00–16:00 windows
-    allowed_hours = set(range(0, 7)) | set(range(10, 16))
-    allowed_slots = set()
-    for s in range(horizon_slots):
-        dt = _slot_to_time(s, base_date)
-        if dt.hour in allowed_hours and s not in blocked:
-            allowed_slots.add(s)
-
-    model = cp_model.CpModel()
-
-    # Decision variables per task: start slot
-    task_vars: list[dict[str, Any]] = []
-    for i, task in enumerate(tasks):
-        dur_slots = max(1, int(task.get("min_duration_hrs", 1.0) * 60 / SLOT_MINUTES))
-        start_var = model.new_int_var(0, horizon_slots - dur_slots, f"start_{i}")
-        present_var = model.new_bool_var(f"present_{i}")
-
-        interval = model.new_optional_fixed_size_interval_var(
-            start_var, dur_slots, present_var, f"interval_{i}"
-        )
-
-        task_vars.append({
-            "index": i,
-            "task": task,
-            "start_var": start_var,
-            "present_var": present_var,
-            "interval": interval,
-            "dur_slots": dur_slots,
-        })
-
-    # No overlap: all scheduled intervals must not overlap on the same corridor
-    all_intervals = [tv["interval"] for tv in task_vars]
-    model.add_no_overlap(all_intervals)
-
-    # Enforce timetable conflict avoidance via valid start slot domains
-    for tv in task_vars:
-        dur = tv["dur_slots"]
-        valid_starts = []
-        for s in range(horizon_slots - dur + 1):
-            # Check if any slot of the task duration falls in a blocked timetable slot
-            if not any((s + d) in blocked for d in range(dur)):
-                # Also check preferred maintenance hours (night 00-06 or midday 10-16) if possible
-                valid_starts.append(s)
-
-        if valid_starts:
-            domain = cp_model.Domain.from_values(valid_starts)
-            model.add_linear_expression_in_domain(tv["start_var"], domain).only_enforce_if(tv["present_var"])
-        else:
-            # Cannot schedule task if no valid window exists
-            model.add(tv["present_var"] == 0)
-
-    # Objective
-    safety_w, throughput_w, consol_w = weights
-    objective_terms = []
-
-    for tv in task_vars:
-        task = tv["task"]
+    horizon_days: int,
+) -> list[MaintenanceTask]:
+    """Convert scored task dicts into MaintenanceTask dataclass objects."""
+    result = []
+    horizon_label = "WEEKLY" if horizon_days <= 7 else "MONTHLY"
+    for task in tasks:
         seg_id = task.get("segment_id", "")
-        risk = risk_data.get(seg_id, {}).get("risk_30d", 0.0)
-        priority = task.get("weighted_priority", 1.0)
+        risk = risk_data.get(seg_id, {})
+        risk_30d = risk.get("risk_30d", 0.0)
 
-        # Safety: prioritize high-risk segments (reward scheduling them)
-        risk_score = int(risk * 1000)
-        priority_score = int(priority * 200)
+        # Map numeric criticality (1-5) to string labels
+        crit_raw = task.get("claimed_criticality", 3)
+        if isinstance(crit_raw, (int, float)):
+            crit_map = {5: "CRITICAL", 4: "HIGH", 3: "MEDIUM", 2: "LOW", 1: "LOW"}
+            crit_str = crit_map.get(int(crit_raw), "MEDIUM")
+        else:
+            crit_str = str(crit_raw).upper()
 
-        objective_terms.append(
-            (tv["present_var"], int(safety_w * risk_score + throughput_w * priority_score + consol_w * 100))
-        )
+        result.append(MaintenanceTask(
+            task_id=str(task.get("task_id", "")),
+            segment=seg_id,
+            claimed_criticality=crit_str,
+            min_duration_hrs=float(task.get("min_duration_hrs", 1.0)),
+            risk_30d=float(risk_30d),
+            preferred_window=task.get("preferred_window"),
+            description=task.get("description", task.get("task_type", "")),
+            day_index=0,
+            horizon=horizon_label,
+        ))
+    return result
 
-    model.maximize(sum(coeff * var for var, coeff in objective_terms))
 
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = time_limit_seconds
-    solver.parameters.num_workers = 4
+def _generate_block_windows(
+    timetable: list[dict[str, Any]],
+    base_date: datetime,
+    horizon_days: int,
+) -> list[BlockWindow]:
+    """Generate BlockWindow objects from the timetable and planning horizon.
 
-    status = solver.solve(model)
-    elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+    Creates daily maintenance windows (night 00:00–06:00 and midday 10:00–16:00)
+    for each day of the planning horizon, marking passenger train conflicts
+    from the provided timetable.
+    """
+    horizon_label = "WEEKLY" if horizon_days <= 7 else "MONTHLY"
+    blocks: list[BlockWindow] = []
+    window_index = 0
 
-    status_name = {
-        cp_model.OPTIMAL: "optimal",
-        cp_model.FEASIBLE: "feasible",
-        cp_model.INFEASIBLE: "infeasible",
-        cp_model.MODEL_INVALID: "error",
-        cp_model.UNKNOWN: "unknown",
-    }.get(status, "unknown")
+    for day in range(horizon_days):
+        day_base = base_date + timedelta(days=day)
 
-    log.info("Optimization finished run_id=%s status=%s elapsed=%dms", run_id, status_name, elapsed_ms)
+        # Night window: 00:00 – 06:00 (6 hours)
+        night_start = day_base
+        night_end = day_base + timedelta(hours=6)
 
-    if status in (cp_model.INFEASIBLE, cp_model.MODEL_INVALID, cp_model.UNKNOWN):
+        # Midday window: 10:00 – 16:00 (6 hours)
+        mid_start = day_base + timedelta(hours=10)
+        mid_end = day_base + timedelta(hours=16)
+
+        for label, w_start, w_end in [
+            ("NIGHT", night_start, night_end),
+            ("MIDDAY", mid_start, mid_end),
+        ]:
+            # Determine passenger conflicts by checking timetable overlaps
+            passenger_conflicts: dict[str, int] = {}
+            freight_conflicts: dict[str, int] = {}
+
+            for entry in timetable:
+                train_start = entry.get("start", w_end)
+                train_end = entry.get("end", w_start)
+                # Check overlap: train [train_start, train_end] vs window [w_start, w_end]
+                if train_start < w_end and train_end > w_start:
+                    seg = entry.get("segment_id", entry.get("section", ""))
+                    train_type = entry.get("type", "passenger").lower()
+                    if train_type == "passenger":
+                        passenger_conflicts[seg] = passenger_conflicts.get(seg, 0) + 1
+                    else:
+                        freight_conflicts[seg] = freight_conflicts.get(seg, 0) + 1
+
+            block_id = f"BLK-D{day:02d}-{label}-{window_index:03d}"
+            duration_hrs = (w_end - w_start).total_seconds() / 3600.0
+
+            blocks.append(BlockWindow(
+                block_id=block_id,
+                start_time=w_start.strftime("%Y-%m-%d %H:%M"),
+                end_time=w_end.strftime("%Y-%m-%d %H:%M"),
+                duration_hrs=duration_hrs,
+                window_index=window_index,
+                passenger_conflicts=passenger_conflicts,
+                freight_conflicts=freight_conflicts,
+                allowed_segments=None,
+                day_index=day,
+                horizon=horizon_label,
+            ))
+            window_index += 1
+
+    return blocks
+
+
+def _result_to_dict(
+    result: OptimizationResult,
+    run_id: str,
+    policy: str,
+    horizon_days: int,
+    elapsed_ms: int,
+    base_date: datetime,
+    risk_data: dict[str, dict[str, Any]],
+    tasks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Convert OptimizationResult dataclass → service-layer dict format.
+
+    Maintains exact interface compatibility with optimization_service.py
+    and whatif_service.py.
+    """
+    status_name = result.solver_status.lower()
+    feasible = status_name in ("optimal", "feasible")
+
+    if not feasible:
         return {
             "run_id": run_id,
             "policy": policy,
@@ -192,60 +173,64 @@ def optimize(
             "robustness_score": None,
             "execution_time_ms": elapsed_ms,
             "error_message": f"Solver returned {status_name}",
-            "affected_tasks": [t.get("task_id", "") for t in tasks],
+            "affected_tasks": [t.task_id for t in result.scheduled_tasks],
             "solver_status": status_name,
         }
 
-    # Extract assignments
+    # Build lookup for scored task data (for explanations)
+    task_lookup = {str(t.get("task_id", "")): t for t in tasks}
+
+    # Convert scheduled tasks → assignment dicts
     assignments = []
-    scheduled_count = 0
-    total_risk_covered = 0.0
+    for st in result.scheduled_tasks:
+        if st.status != "SCHEDULED" or not st.assigned_block:
+            continue
 
-    for tv in task_vars:
-        if solver.value(tv["present_var"]):
-            scheduled_count += 1
-            start_slot = solver.value(tv["start_var"])
-            task = tv["task"]
-            seg_id = task.get("segment_id", "")
-            risk = risk_data.get(seg_id, {}).get("risk_30d", 0.0)
-            total_risk_covered += risk
+        task_data = task_lookup.get(st.task_id, {})
+        seg_risk = risk_data.get(st.segment, {})
 
-            block_start = _slot_to_time(start_slot, base_date)
-            block_end = _slot_to_time(start_slot + tv["dur_slots"], base_date)
+        # Parse block window times from the assigned block
+        block_start, block_end = _parse_block_times(
+            st.assigned_block, base_date, st.duration_hrs
+        )
 
-            # Build explanation from actual data
-            explanation = _build_explanation(task, risk_data.get(seg_id, {}))
+        explanation = _build_explanation(task_data, seg_risk)
 
-            assignments.append({
-                "task_id": task.get("task_id", ""),
-                "segment_id": seg_id,
-                "department": task.get("department", ""),
-                "block_start": block_start,
-                "block_end": block_end,
-                "duration_hrs": round(tv["dur_slots"] * SLOT_MINUTES / 60, 2),
-                "priority": task.get("weighted_priority"),
-                "risk_30d": risk,
-                "reason": explanation["primary_reason"],
-                "explanation": explanation,
-                "consolidation_group": task.get("consolidation_group"),
-                "constraint_summary": {
-                    "timetable_conflicts_avoided": len(blocked),
-                    "maintenance_window": "00:00-06:00, 10:00-16:00",
-                },
-            })
+        assignments.append({
+            "task_id": st.task_id,
+            "segment_id": st.segment,
+            "department": task_data.get("department", ""),
+            "block_start": block_start,
+            "block_end": block_end,
+            "duration_hrs": round(st.duration_hrs, 2),
+            "priority": task_data.get("weighted_priority"),
+            "risk_30d": st.risk_30d,
+            "reason": explanation["primary_reason"],
+            "explanation": explanation,
+            "consolidation_group": task_data.get("consolidation_group"),
+            "constraint_summary": {
+                "timetable_conflicts_avoided": result.total_freight_trains_delayed,
+                "maintenance_window": "00:00-06:00, 10:00-16:00",
+            },
+        })
 
     assignments.sort(key=lambda a: a["block_start"])
 
+    # Objective values in the format services expect
+    scheduled_count = result.scheduled_tasks_count
+    total_count = result.total_tasks
     objective_values = {
-        "safety_score": round(total_risk_covered / max(len(tasks), 1), 4),
-        "throughput_score": round(scheduled_count / max(len(tasks), 1), 4),
+        "safety_score": round(
+            sum(a.get("risk_30d", 0) for a in assignments) / max(total_count, 1), 4
+        ),
+        "throughput_score": round(scheduled_count / max(total_count, 1), 4),
         "total_scheduled": scheduled_count,
-        "total_tasks": len(tasks),
-        "solver_objective": round(solver.objective_value, 2) if status == cp_model.OPTIMAL else None,
+        "total_tasks": total_count,
+        "solver_objective": round(result.objective_value, 2),
     }
 
-    # Robustness: fraction of tasks that remain feasible if any single task overruns by 50%
-    robustness = round(scheduled_count / max(len(tasks), 1) * 0.85 + 0.1, 3)
+    # Robustness estimation
+    robustness = round(scheduled_count / max(total_count, 1) * 0.85 + 0.1, 3)
 
     return {
         "run_id": run_id,
@@ -263,6 +248,30 @@ def optimize(
     }
 
 
+def _parse_block_times(
+    block_id: str,
+    base_date: datetime,
+    duration_hrs: float,
+) -> tuple[datetime, datetime]:
+    """Extract start/end datetimes from a BLK-D{day}-{label}-{idx} block ID."""
+    try:
+        parts = block_id.split("-")
+        day_idx = int(parts[1].replace("D", ""))
+        label = parts[2]  # NIGHT or MIDDAY
+        day_base = base_date + timedelta(days=day_idx)
+        if label == "NIGHT":
+            start = day_base  # 00:00
+        else:
+            start = day_base + timedelta(hours=10)  # 10:00
+        end = start + timedelta(hours=duration_hrs)
+        return start, end
+    except (IndexError, ValueError):
+        # Fallback: use base_date + offset
+        start = base_date
+        end = start + timedelta(hours=duration_hrs)
+        return start, end
+
+
 def _build_explanation(task: dict[str, Any], risk: dict[str, Any]) -> dict[str, Any]:
     """Build WHY explanation from actual task and risk data."""
     risk_30d = risk.get("risk_30d", 0.0)
@@ -273,7 +282,10 @@ def _build_explanation(task: dict[str, Any], risk: dict[str, Any]) -> dict[str, 
     factors = []
     if risk_30d > 0:
         factors.append({"name": "risk_30d", "value": risk_30d, "contribution": round(risk_30d * 0.5, 3)})
-    factors.append({"name": "criticality", "value": crit, "contribution": round(crit / 5.0 * 0.3, 3)})
+    if isinstance(crit, (int, float)):
+        factors.append({"name": "criticality", "value": crit, "contribution": round(crit / 5.0 * 0.3, 3)})
+    else:
+        factors.append({"name": "criticality", "value": crit, "contribution": 0.15})
     if overdue:
         factors.append({"name": "overdue", "value": 1, "contribution": 0.2})
 
@@ -282,7 +294,7 @@ def _build_explanation(task: dict[str, Any], risk: dict[str, Any]) -> dict[str, 
         primary = "High-risk segment prioritized for safety within feasible block window."
     elif overdue:
         primary = "Overdue maintenance scheduled to prevent further deterioration."
-    elif priority >= 3.0:
+    elif isinstance(priority, (int, float)) and priority >= 3.0:
         primary = "High-priority task scheduled based on evidence-weighted scoring."
     else:
         primary = "Routine maintenance allocated to available block window."
@@ -301,6 +313,92 @@ def _build_explanation(task: dict[str, Any], risk: dict[str, Any]) -> dict[str, 
         "constraints": constraints,
         "consolidation_benefit": consolidation,
     }
+
+
+# ──────────────────────────────────────────────────────────────
+# Public API — preserved interface for downstream services
+# ──────────────────────────────────────────────────────────────
+
+def optimize(
+    tasks: list[dict[str, Any]],
+    risk_data: dict[str, dict[str, Any]],
+    timetable: list[dict[str, Any]],
+    policy: str = "balanced",
+    horizon_days: int = 7,
+    base_date: datetime | None = None,
+    time_limit_seconds: float = 10.0,
+) -> dict[str, Any]:
+    """Run CP-SAT block plan optimization via the production Optimization engine.
+
+    Interface is 100% backward-compatible with the previous prototype.
+    Downstream services (optimization_service, whatif_service) require no changes.
+
+    Args:
+        tasks: scored task pool (from Layer 2) with weighted_priority, min_duration_hrs, etc.
+        risk_data: segment_id → risk prediction
+        timetable: train passage windows to avoid
+        policy: safety_first | balanced | throughput_first
+        horizon_days: planning horizon in days
+        base_date: start of planning window
+        time_limit_seconds: solver time limit
+
+    Returns:
+        Normalized optimization result dict.
+    """
+    run_id = f"OPT-{datetime.now().strftime('%Y-%m')}-{uuid.uuid4().hex[:6].upper()}"
+    log.info(
+        "Layer 3 optimization started run_id=%s policy=%s tasks=%d horizon=%dd",
+        run_id, policy, len(tasks), horizon_days,
+    )
+
+    if base_date is None:
+        base_date = datetime(2026, 9, 15, 0, 0, 0)
+
+    start_time = time.perf_counter()
+
+    if not tasks:
+        elapsed = int((time.perf_counter() - start_time) * 1000)
+        return _empty_result(run_id, policy, horizon_days, elapsed, "No tasks to schedule")
+
+    # ── Step 1: Convert dicts → engine dataclasses ──
+    engine_tasks = _tasks_to_dataclasses(tasks, risk_data, horizon_days)
+    engine_blocks = _generate_block_windows(timetable, base_date, horizon_days)
+
+    if not engine_blocks:
+        elapsed = int((time.perf_counter() - start_time) * 1000)
+        return _empty_result(run_id, policy, horizon_days, elapsed, "No block windows generated")
+
+    # ── Step 2: Select config by policy ──
+    config_factory = _POLICY_CONFIG_MAP.get(policy, OptimizerConfig.balanced)
+    config = config_factory()
+    config.SOLVER_TIMEOUT_SECONDS = time_limit_seconds
+
+    # ── Step 3: Run the production CP-SAT engine ──
+    optimizer = RailSyncOptimizer(config=config)
+    result: OptimizationResult = optimizer.optimize(
+        tasks=engine_tasks,
+        blocks=engine_blocks,
+    )
+
+    elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+
+    log.info(
+        "Layer 3 optimization finished run_id=%s status=%s scheduled=%d/%d elapsed=%dms",
+        run_id, result.solver_status, result.scheduled_tasks_count,
+        result.total_tasks, elapsed_ms,
+    )
+
+    # ── Step 4: Convert result → service-layer dict ──
+    return _result_to_dict(
+        result=result,
+        run_id=run_id,
+        policy=policy,
+        horizon_days=horizon_days,
+        elapsed_ms=elapsed_ms,
+        base_date=base_date,
+        risk_data=risk_data,
+        tasks=tasks,
+    )
 
 
 def _empty_result(
@@ -323,8 +421,11 @@ def _empty_result(
 
 
 def is_available() -> bool:
+    """Check if the Optimization engine and OR-Tools are available."""
     try:
+        from ortools.sat.python import cp_model
         _ = cp_model.CpModel()
+        _ = RailSyncOptimizer()
         return True
     except Exception:
         return False

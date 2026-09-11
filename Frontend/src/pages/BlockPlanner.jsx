@@ -1,411 +1,258 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import {
+  getCurrentPlan, runOptimization,
+  formatTime, formatDuration, deptLabel,
+} from '../services/api';
 
 export default function BlockPlanner() {
   const [deptFilter, setDeptFilter] = useState('ALL');
-  const [isConsolidated, setIsConsolidated] = useState(false);
+  const [plan, setPlan] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [optimizing, setOptimizing] = useState(false);
 
-  const applyConsolidation = () => {
-    setIsConsolidated(true);
+  useEffect(() => {
+    loadPlan();
+  }, []);
+
+  const loadPlan = async () => {
+    setLoading(true);
+    try {
+      const data = await getCurrentPlan();
+      setPlan(data);
+    } catch {
+      setPlan(null);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleOptimize = async (policy = 'balanced') => {
+    if (optimizing) return;
+    setOptimizing(true);
+    try {
+      await runOptimization(policy, 'both');
+      await loadPlan();
+    } catch (err) {
+      alert('Optimization failed: ' + (err.response?.data?.detail || err.message));
+    } finally {
+      setOptimizing(false);
+    }
+  };
+
+  const assignments = plan?.assignments || [];
+
+  // Department breakdown
+  const allDepts = [...new Set(assignments.map(a => a.department))];
+
+  // Filter
+  const filtered = deptFilter === 'ALL'
+    ? assignments
+    : assignments.filter(a => a.department === deptFilter);
+
+  // Group by day (from block_start)
+  const groupByDay = (items) => {
+    const groups = {};
+    items.forEach(a => {
+      const day = new Date(a.block_start).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' });
+      if (!groups[day]) groups[day] = [];
+      groups[day].push(a);
+    });
+    return groups;
+  };
+
+  const dayGroups = groupByDay(filtered);
+  const now = new Date();
+
+  if (loading) {
+    return (
+      <main className="flex flex-col relative w-full">
+        <div className="flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-space-sm">
+            <span className="material-symbols-outlined text-[32px] text-primary animate-spin">autorenew</span>
+            <span className="font-code-sm text-code-sm text-on-surface-variant">Loading block plan from Layer 3...</span>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex flex-col relative w-full">
       <div className="flex flex-col w-full">
-        {/* Operations Strip: Date, Live Window & Sync Status */}
+        {/* Operations Strip */}
         <section className="p-gutter bg-surface-container-low flex flex-col gap-space-sm shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-space-xs">
               <span className="material-symbols-outlined text-primary text-[18px]">calendar_today</span>
-              <span className="font-headline-sm text-headline-sm text-primary">24-OCT-2024 (THU)</span>
-              <span className="font-label-caps text-label-caps bg-primary text-on-primary px-space-xs py-0.5 rounded ml-space-xs">
-                PRYJ-ALJN SEC
+              <span className="font-headline-sm text-headline-sm text-primary">
+                {now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' }).toUpperCase()}
               </span>
+              {plan && (
+                <span className="font-label-caps text-label-caps bg-primary text-on-primary px-space-xs py-0.5 rounded ml-space-xs">
+                  {plan.plan_id}
+                </span>
+              )}
             </div>
-            <div className="flex items-center gap-space-xs bg-surface-container-highest px-space-sm py-0.5 rounded">
-              <span className="material-symbols-outlined text-secondary text-[14px]">nest_clock_farsight_analog</span>
-              <span className="font-code-sm text-code-sm text-on-surface-variant font-bold">12:00 - 24:00 (12H)</span>
+            <div className="flex items-center gap-space-xs">
+              {plan && (
+                <span className="font-code-sm text-code-sm text-on-surface-variant bg-surface-container-highest px-space-sm py-0.5 rounded">
+                  Policy: {plan.policy} • {plan.total_assignments} blocks
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Filter & Department Selector Toggles */}
+          {/* Dept Filters */}
           <div className="flex items-center gap-space-xs overflow-x-auto no-scrollbar py-0.5">
             <button
               onClick={() => setDeptFilter('ALL')}
               className={`flex items-center gap-space-xs px-space-sm py-1 rounded font-code-sm text-code-sm shrink-0 transition-colors ${
-                deptFilter === 'ALL'
-                  ? 'bg-primary text-on-primary shadow-sm'
-                  : 'bg-surface-container-highest text-on-surface-variant'
+                deptFilter === 'ALL' ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-highest text-on-surface-variant'
               }`}
             >
-              <span>DEPTS: ALL (3)</span>
+              DEPTS: ALL ({allDepts.length})
             </button>
-            <button
-              onClick={() => setDeptFilter('ENG')}
-              className={`flex items-center gap-space-xs px-space-sm py-1 rounded font-code-sm text-code-sm shrink-0 transition-colors ${
-                deptFilter === 'ENG'
-                  ? 'bg-primary text-on-primary shadow-sm'
-                  : 'bg-surface-container-highest text-on-surface-variant'
-              }`}
-            >
-              <span>ENG (P-WAY)</span>
-            </button>
-            <button
-              onClick={() => setDeptFilter('TRD')}
-              className={`flex items-center gap-space-xs px-space-sm py-1 rounded font-code-sm text-code-sm shrink-0 transition-colors ${
-                deptFilter === 'TRD'
-                  ? 'bg-primary text-on-primary shadow-sm'
-                  : 'bg-surface-container-highest text-on-surface-variant'
-              }`}
-            >
-              <span>TRD (OHE)</span>
-            </button>
-            <button
-              onClick={() => setDeptFilter('S&T')}
-              className={`flex items-center gap-space-xs px-space-sm py-1 rounded font-code-sm text-code-sm shrink-0 transition-colors ${
-                deptFilter === 'S&T'
-                  ? 'bg-primary text-on-primary shadow-sm'
-                  : 'bg-surface-container-highest text-on-surface-variant'
-              }`}
-            >
-              <span>S&T</span>
-            </button>
-            <button
-              onClick={() => setDeptFilter('CONFLICTS')}
-              className={`flex items-center gap-space-xs px-space-sm py-1 rounded bg-error-container text-on-error-container font-code-sm text-code-sm shrink-0 font-semibold shadow-sm transition-opacity ${
-                deptFilter === 'CONFLICTS' ? 'ring-2 ring-error' : ''
-              }`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-error animate-ping"></span>
-              <span>CONFLICTS ({isConsolidated ? '0' : '2'})</span>
-            </button>
+            {allDepts.map(dept => (
+              <button
+                key={dept}
+                onClick={() => setDeptFilter(dept)}
+                className={`flex items-center gap-space-xs px-space-sm py-1 rounded font-code-sm text-code-sm shrink-0 transition-colors ${
+                  deptFilter === dept ? 'bg-primary text-on-primary shadow-sm' : 'bg-surface-container-highest text-on-surface-variant'
+                }`}
+              >
+                {dept}
+              </button>
+            ))}
+            <div className="ml-auto flex items-center gap-space-xs">
+              <button
+                onClick={() => handleOptimize('balanced')}
+                disabled={optimizing}
+                className="flex items-center gap-space-xs px-space-md py-1 rounded bg-primary text-on-primary font-code-sm text-code-sm font-bold shadow-sm"
+              >
+                <span className={`material-symbols-outlined text-[14px] ${optimizing ? 'animate-spin' : ''}`}>
+                  {optimizing ? 'autorenew' : 'play_arrow'}
+                </span>
+                {optimizing ? 'OPTIMIZING...' : 'RE-OPTIMIZE'}
+              </button>
+            </div>
           </div>
         </section>
 
-        {/* AI Consolidation Insight & Quick Action Banner */}
-        <section className="p-gutter">
-          <div className="bg-surface-container-lowest rounded-lg p-space-md shadow-md flex flex-col gap-space-sm">
-            <div className="flex items-start justify-between gap-space-sm">
-              <div className="flex items-center gap-space-xs text-primary">
-                <span className="material-symbols-outlined text-tertiary-container text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                  auto_fix_high
+        {/* Block Schedule */}
+        <div className="p-gutter flex flex-col gap-space-md">
+          {!plan ? (
+            <div className="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm text-center flex flex-col items-center gap-space-md">
+              <span className="material-symbols-outlined text-[48px] text-on-surface-variant">event_busy</span>
+              <div className="flex flex-col gap-space-xs">
+                <span className="font-headline-sm text-headline-sm text-on-surface">No Active Block Plan</span>
+                <span className="font-body-md text-body-md text-on-surface-variant">
+                  Run the optimization engine to generate block assignments from Layer 3.
                 </span>
-                <span className="font-headline-sm text-headline-sm text-on-surface">Integrated Block Suggestion</span>
               </div>
-              <span
-                className={`font-label-caps text-label-caps px-space-xs py-0.5 rounded uppercase ${
-                  isConsolidated ? 'bg-tertiary-container text-tertiary-fixed font-bold' : 'bg-error text-on-error'
-                }`}
+              <button
+                onClick={() => handleOptimize('balanced')}
+                disabled={optimizing}
+                className="px-space-lg py-space-sm rounded bg-primary text-on-primary font-code-md text-code-md font-bold shadow-sm flex items-center gap-space-xs"
               >
-                {isConsolidated ? 'All Clashes Resolved' : '2 Clashes Resolved'}
-              </span>
+                <span className="material-symbols-outlined text-[18px]">auto_fix_high</span>
+                GENERATE BLOCK PLAN
+              </button>
             </div>
-            <p className="font-body-md text-body-md text-on-surface-variant leading-tight">
-              Shift <span className="font-code-sm text-code-sm font-bold text-primary">BLK-TRD-109</span> to{' '}
-              <span className="font-code-sm text-code-sm font-semibold text-primary">16:45 - 18:15</span> to shadow S&T maintenance. Frees loop-1 at Khurja Jn for train{' '}
-              <span className="font-code-sm text-code-sm font-bold text-on-surface">12004 Gomti Express</span> without speed restriction penalty.
-            </p>
-            <div className="grid grid-cols-2 gap-space-xs pt-space-xs">
-              <div className="bg-surface-container-low p-space-xs rounded flex flex-col">
-                <span className="font-label-caps text-label-caps text-secondary">NET DETENTION SAVED</span>
-                <span className="font-code-lg text-code-lg text-on-tertiary-container font-bold">+75 MINS</span>
-              </div>
-              <div className="bg-surface-container-low p-space-xs rounded flex flex-col">
-                <span className="font-label-caps text-label-caps text-secondary">PUNCTUALITY PRESERVED</span>
-                <span className="font-code-lg text-code-lg text-primary font-bold">98.4%</span>
-              </div>
-            </div>
-
-            <button
-              id="applyBtn"
-              disabled={isConsolidated}
-              onClick={applyConsolidation}
-              className={`w-full mt-space-xs py-space-sm px-space-md rounded font-code-sm text-code-sm flex items-center justify-center gap-space-xs shadow-sm active:scale-[0.99] transition-all ${
-                isConsolidated
-                  ? 'bg-tertiary-container text-tertiary-fixed cursor-default'
-                  : 'bg-primary-container text-on-primary hover:bg-primary'
-              }`}
-            >
-              {isConsolidated ? (
-                <>
-                  <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                  <span>CONSOLIDATION APPLIED & SANCTIONED</span>
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-[16px]">merge_type</span>
-                  <span>APPLY CONSOLIDATION & SHADOWING</span>
-                </>
-              )}
-            </button>
-          </div>
-        </section>
-
-        {/* Interactive Visual Schedule Timeline */}
-        <section className="px-gutter pb-gutter flex flex-col gap-space-md">
-          {/* Gantt Horizontal Scale Indicator */}
-          <div className="bg-surface-container rounded-t-lg p-space-xs flex justify-between items-center text-on-surface-variant font-code-sm text-code-sm font-medium">
-            <span className="w-10 text-center">12:00</span>
-            <span className="w-10 text-center">14:00</span>
-            <span className="w-10 text-center">16:00</span>
-            <span className="w-10 text-center">18:00</span>
-            <span className="w-10 text-center">20:00</span>
-            <span className="w-10 text-center">22:00</span>
-            <span className="w-10 text-center">24:00</span>
-          </div>
-
-          {/* Timeline Body Stack */}
-          <div className="flex flex-col gap-space-md">
-            {/* SECTION 1: ENGINEERING (P-WAY) */}
-            <div className="bg-surface-container-lowest rounded-lg p-space-sm shadow-sm flex flex-col gap-space-xs">
-              <div className="flex items-center justify-between pb-space-xs">
+          ) : (
+            Object.entries(dayGroups).map(([day, dayAssignments]) => (
+              <div key={day} className="flex flex-col gap-space-xs">
                 <div className="flex items-center gap-space-xs">
-                  <span className="material-symbols-outlined text-[16px] text-primary">construction</span>
-                  <span className="font-headline-sm text-headline-sm text-on-surface">P-Way (Engineering)</span>
-                </div>
-                <span className="font-label-caps text-label-caps text-secondary bg-surface-container px-space-xs py-0.5 rounded">
-                  2 POSSESSIONS
-                </span>
-              </div>
-              {/* Block 1: Active In-Progress */}
-              <div className="bg-primary-container text-on-primary rounded p-space-sm flex flex-col gap-space-xs relative overflow-hidden shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-space-xs">
-                    <span className="w-2 h-2 rounded-full bg-tertiary-fixed animate-pulse"></span>
-                    <span className="font-code-sm text-code-sm font-bold tracking-wide">BLK-ENG-401</span>
-                    <span className="font-label-caps text-label-caps bg-surface-container/20 text-on-primary px-space-xs py-0.5 rounded">
-                      SOM-KRJ UP
-                    </span>
-                  </div>
-                  <span className="font-code-sm text-code-sm text-tertiary-fixed font-bold">13:00 - 15:00 (120m)</span>
-                </div>
-                <p className="font-body-sm text-body-sm text-on-primary-container">
-                  Tamping Machine 09-3X deployed at Km 1042/12. Deep screening ballast regulator in buffer mode.
-                </p>
-                <div className="w-full bg-primary/40 h-1 rounded-full overflow-hidden mt-1">
-                  <div className="bg-tertiary-fixed h-full w-[72%]"></div>
-                </div>
-              </div>
-
-              {/* Block 2: Critical Weld Replacement */}
-              <div className="bg-surface-container-high rounded p-space-sm flex flex-col gap-space-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-space-xs">
-                    <span className="material-symbols-outlined text-error text-[16px]">report_problem</span>
-                    <span className="font-code-sm text-code-sm font-bold text-on-surface">BLK-ENG-404</span>
-                    <span className="font-label-caps text-label-caps bg-error-container text-on-error-container px-space-xs py-0.5 rounded font-bold">
-                      KRJ UP MAIN
-                    </span>
-                  </div>
-                  <span className="font-code-sm text-code-sm text-error font-bold">15:30 - 17:00 (90m)</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-body-sm text-body-sm text-on-surface-variant">
-                    Critical thermit weld fracture replacement & ultrasonic testing.
-                  </span>
-                  <span className="font-label-caps text-label-caps bg-surface-container px-space-xs py-0.5 rounded text-secondary font-bold">
-                    SHADOW CANDIDATE
+                  <span className="font-headline-sm text-headline-sm text-primary">{day}</span>
+                  <span className="font-label-caps text-label-caps bg-surface-container-high text-on-surface-variant px-space-xs py-0.5 rounded">
+                    {dayAssignments.length} BLOCKS
                   </span>
                 </div>
-              </div>
-            </div>
 
-            {/* SECTION 2: TRACTION & ELECTRICAL (TRD) */}
-            <div className="bg-surface-container-lowest rounded-lg p-space-sm shadow-sm flex flex-col gap-space-xs">
-              <div className="flex items-center justify-between pb-space-xs">
-                <div className="flex items-center gap-space-xs">
-                  <span className="material-symbols-outlined text-[16px] text-primary">bolt</span>
-                  <span className="font-headline-sm text-headline-sm text-on-surface">Traction & Power (TRD)</span>
-                </div>
-                <span
-                  className={`font-label-caps text-label-caps px-space-xs py-0.5 rounded font-bold ${
-                    isConsolidated
-                      ? 'bg-tertiary-container text-tertiary-fixed'
-                      : 'text-error bg-error-container'
-                  }`}
-                >
-                  {isConsolidated ? 'SYNCHRONIZED' : 'UNRESOLVED CONFLICT'}
-                </span>
-              </div>
-
-              {/* TRD Block */}
-              <div
-                className={`rounded p-space-sm flex flex-col gap-space-xs shadow-sm transition-all duration-300 ${
-                  isConsolidated ? 'bg-surface-container-high text-on-surface' : 'bg-error-container text-on-error-container'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-space-xs">
-                    <span className={`material-symbols-outlined text-[16px] ${isConsolidated ? 'text-primary' : 'text-error'}`}>
-                      {isConsolidated ? 'task_alt' : 'crisis_alert'}
-                    </span>
-                    <span className="font-code-sm text-code-sm font-bold">BLK-TRD-109</span>
-                    <span className="font-label-caps text-label-caps bg-surface-container-lowest text-on-surface px-space-xs py-0.5 rounded">
-                      KRJ-TDL UP OHE
-                    </span>
-                  </div>
-                  <span
-                    className={`font-code-sm text-code-sm font-bold ${
-                      isConsolidated ? 'text-primary' : 'text-error'
-                    }`}
+                {/* Block Cards */}
+                {dayAssignments.map((a, i) => (
+                  <div
+                    key={a.task_id + i}
+                    className="bg-surface-container-lowest rounded-lg p-space-md shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-space-sm"
                   >
-                    {isConsolidated ? '16:45 - 18:15 (90m)' : '16:00 - 18:00 (120m)'}
+                    <div className="flex items-start gap-space-sm min-w-0">
+                      <div className={`w-1 h-12 rounded-full shrink-0 ${
+                        a.risk_30d >= 0.7 ? 'bg-error' : a.risk_30d >= 0.4 ? 'bg-secondary' : 'bg-tertiary-fixed-dim'
+                      }`}></div>
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <div className="flex items-center gap-space-xs flex-wrap">
+                          <span className="font-code-lg text-code-lg font-bold text-primary">{a.task_id}</span>
+                          <span className="font-label-caps text-label-caps bg-surface-container px-1 py-0.5 rounded text-on-surface font-semibold">
+                            {a.department}
+                          </span>
+                          {a.consolidation_group && (
+                            <span className="font-label-caps text-label-caps bg-secondary-container text-on-secondary-container px-1 py-0.5 rounded">
+                              GROUP: {a.consolidation_group}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-code-sm text-code-sm text-on-surface-variant">
+                          Segment: {a.segment_id} {a.reason ? `• ${a.reason}` : ''}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-space-md shrink-0">
+                      <div className="text-right">
+                        <span className="font-label-caps text-label-caps text-on-surface-variant block">WINDOW</span>
+                        <span className="font-code-md text-code-md text-on-surface font-bold">
+                          {formatTime(a.block_start)} - {formatTime(a.block_end)}
+                        </span>
+                      </div>
+                      <div className="h-8 w-[1px] bg-outline-variant"></div>
+                      <div className="text-right">
+                        <span className="font-label-caps text-label-caps text-on-surface-variant block">DURATION</span>
+                        <span className="font-code-md text-code-md text-on-surface font-bold">{formatDuration(a.duration_hrs)}</span>
+                      </div>
+                      <div className="h-8 w-[1px] bg-outline-variant"></div>
+                      <div className="text-right">
+                        <span className="font-label-caps text-label-caps text-on-surface-variant block">RISK</span>
+                        <span className={`font-code-md text-code-md font-bold ${
+                          a.risk_30d >= 0.7 ? 'text-error' : a.risk_30d >= 0.4 ? 'text-secondary' : 'text-on-tertiary-container'
+                        }`}>
+                          {a.risk_30d != null ? `${(a.risk_30d * 100).toFixed(0)}%` : '—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+
+          {plan && filtered.length === 0 && (
+            <div className="text-center py-space-md font-code-sm text-code-sm text-on-surface-variant">
+              No blocks for department: {deptFilter}
+            </div>
+          )}
+        </div>
+
+        {/* Summary Footer */}
+        {plan && (
+          <div className="p-gutter bg-surface-container-lowest shadow-[0_-2px_10px_rgba(0,0,0,0.06)] sticky bottom-0 z-40">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-space-xs">
+                <span className="material-symbols-outlined text-primary text-[20px]">summarize</span>
+                <div className="flex flex-col">
+                  <span className="font-headline-sm text-headline-sm text-on-surface font-bold">
+                    {plan.total_assignments} Total Blocks Scheduled
+                  </span>
+                  <span className="font-code-sm text-code-sm text-on-surface-variant">
+                    Policy: {plan.policy} • Robustness: {plan.robustness_score ? `${(plan.robustness_score * 100).toFixed(0)}%` : '—'}
+                    {plan.execution_time_ms && ` • Solved in ${plan.execution_time_ms}ms`}
                   </span>
                 </div>
-                <div className="bg-surface-container-lowest/80 p-space-xs rounded flex items-start gap-space-xs">
-                  <span className={`material-symbols-outlined text-[16px] shrink-0 ${isConsolidated ? 'text-on-tertiary-container' : 'text-error'}`}>
-                    {isConsolidated ? 'check_circle' : 'emergency'}
-                  </span>
-                  <p className="font-body-sm text-body-sm text-on-surface font-medium leading-tight">
-                    {isConsolidated ? (
-                      <>
-                        <span className="text-on-tertiary-container font-semibold">SYNCHRONIZED:</span> Successfully shadowed inside S&T slot.
-                        Corridor Loop-1 clear.
-                      </>
-                    ) : (
-                      'CLASH DETECTED: Blocks 12004 Gomti Exp path on UP fast line. Incompatible with S&T slot.'
-                    )}
-                  </p>
-                </div>
               </div>
-            </div>
-
-            {/* SECTION 3: SIGNALLING & TELECOM (S&T) */}
-            <div className="bg-surface-container-lowest rounded-lg p-space-sm shadow-sm flex flex-col gap-space-xs">
-              <div className="flex items-center justify-between pb-space-xs">
-                <div className="flex items-center gap-space-xs">
-                  <span className="material-symbols-outlined text-[16px] text-primary">sensors</span>
-                  <span className="font-headline-sm text-headline-sm text-on-surface">Signalling & Interlocking (S&T)</span>
-                </div>
-                <span className="font-label-caps text-label-caps text-secondary bg-surface-container px-space-xs py-0.5 rounded">
-                  1 WORK PERMIT
-                </span>
-              </div>
-              <div className="bg-surface-container-high rounded p-space-sm flex flex-col gap-space-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-space-xs">
-                    <span className="material-symbols-outlined text-secondary text-[16px]">settings_input_component</span>
-                    <span className="font-code-sm text-code-sm font-bold text-on-surface">BLK-SNT-082</span>
-                    <span className="font-label-caps text-label-caps bg-surface-container text-on-surface px-space-xs py-0.5 rounded">
-                      KRJ CABIN-B
-                    </span>
-                  </div>
-                  <span className="font-code-sm text-code-sm text-primary font-bold">16:00 - 17:30 (90m)</span>
-                </div>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  Solid-State Interlocking (SSI) CPU standby failover certification & point machine #14B overhaul.
-                </p>
-              </div>
-
-              {/* Integrated Corridor Block Bracket Opportunity */}
-              <div className="bg-secondary-container text-on-secondary-fixed rounded p-space-xs flex items-center justify-between shadow-sm">
-                <div className="flex items-center gap-space-xs">
-                  <span className="material-symbols-outlined text-secondary text-[18px]">hub</span>
-                  <div className="flex flex-col">
-                    <span className="font-label-caps text-label-caps font-bold text-primary">INTEGRATED BLOCK WINDOW OPPORTUNITY</span>
-                    <span className="font-body-sm text-body-sm text-on-secondary-variant">
-                      P-Way (404) + TRD (109) + S&T (082) simultaneous lock
-                    </span>
-                  </div>
-                </div>
-                <span className="font-code-sm text-code-sm bg-surface-container-lowest text-primary px-space-xs py-0.5 rounded font-bold">
-                  SAVES 75M
-                </span>
-              </div>
-            </div>
-
-            {/* SECTION 4: TRAIN MOVEMENT SCHEDULE */}
-            <div className="bg-surface-container-lowest rounded-lg p-space-sm shadow-sm flex flex-col gap-space-xs">
-              <div className="flex items-center justify-between pb-space-xs">
-                <div className="flex items-center gap-space-xs">
-                  <span className="material-symbols-outlined text-[16px] text-primary">train</span>
-                  <span className="font-headline-sm text-headline-sm text-on-surface">Train Movements & Priority Paths</span>
-                </div>
-                <span className="font-label-caps text-label-caps text-secondary bg-surface-container px-space-xs py-0.5 rounded">
-                  HIGH DENSITY (NCR)
-                </span>
-              </div>
-              {/* Train 1 */}
-              <div className="bg-surface-container-low p-space-xs rounded flex items-center justify-between">
-                <div className="flex items-center gap-space-xs">
-                  <span className="w-1.5 h-6 bg-tertiary-fixed rounded-full"></span>
-                  <div className="flex flex-col">
-                    <span className="font-code-sm text-code-sm font-bold text-on-surface">12302 HWH RAJDHANI</span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant">Passing KRJ UP Main at 14:15</span>
-                  </div>
-                </div>
-                <span className="font-label-caps text-label-caps bg-tertiary-container text-tertiary-fixed px-space-xs py-0.5 rounded font-bold">
-                  CLEAR PATH
-                </span>
-              </div>
-
-              {/* Train 2: Gomti Express */}
-              <div
-                className={`p-space-xs rounded flex items-center justify-between transition-colors ${
-                  isConsolidated ? 'bg-surface-container-low' : 'bg-error-container/40'
-                }`}
-              >
-                <div className="flex items-center gap-space-xs">
-                  <span className={`w-1.5 h-6 rounded-full ${isConsolidated ? 'bg-tertiary-fixed' : 'bg-error'}`}></span>
-                  <div className="flex flex-col">
-                    <span className="font-code-sm text-code-sm font-bold text-on-surface">12004 GOMTI EXPRESS</span>
-                    <span
-                      className={`font-body-sm text-body-sm font-medium ${
-                        isConsolidated ? 'text-on-surface-variant' : 'text-error'
-                      }`}
-                    >
-                      {isConsolidated
-                        ? 'Due KRJ 16:22 (Routing on Loop-1 without halt)'
-                        : 'Due KRJ 16:22 (+45 min projected detention)'}
-                    </span>
-                  </div>
-                </div>
-                <span
-                  className={`font-label-caps text-label-caps px-space-xs py-0.5 rounded font-bold uppercase ${
-                    isConsolidated ? 'bg-tertiary-container text-tertiary-fixed' : 'bg-error text-on-error'
-                  }`}
-                >
-                  {isConsolidated ? 'ON-TIME CLEARED' : 'CRITICAL DELAY'}
-                </span>
-              </div>
-
-              {/* Train 3 */}
-              <div className="bg-surface-container-low p-space-xs rounded flex items-center justify-between">
-                <div className="flex items-center gap-space-xs">
-                  <span className="w-1.5 h-6 bg-secondary rounded-full"></span>
-                  <div className="flex flex-col">
-                    <span className="font-code-sm text-code-sm font-bold text-on-surface">12424 DBRT RAJDHANI</span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant">Due KRJ UP at 17:40</span>
-                  </div>
-                </div>
-                <span className="font-label-caps text-label-caps bg-surface-container-highest text-secondary px-space-xs py-0.5 rounded font-bold">
-                  12M BUFFER
-                </span>
-              </div>
+              <button onClick={loadPlan} className="font-code-sm text-code-sm text-primary font-bold hover:underline flex items-center gap-0.5">
+                <span className="material-symbols-outlined text-[14px]">refresh</span> REFRESH
+              </button>
             </div>
           </div>
-        </section>
-
-        {/* Divisional Block Sanction Summary Sticky Footer Bar */}
-        <section className="p-gutter bg-surface-container-low flex flex-col gap-space-xs mt-auto">
-          <div className="flex items-center justify-between font-label-caps text-label-caps text-on-surface-variant">
-            <span>SANCTIONING AUTHORITY: SR. DOM / PRYJ</span>
-            <span className="font-code-sm text-code-sm text-primary font-bold">SESSION #2024-B10</span>
-          </div>
-          <div className="grid grid-cols-3 gap-space-xs text-center">
-            <div className="bg-surface-container-lowest p-space-xs rounded">
-              <div className="font-label-caps text-label-caps text-secondary">ACTIVE BLOCKS</div>
-              <div className="font-code-md text-code-md font-bold text-primary">{isConsolidated ? '2 / 4' : '1 / 4'}</div>
-            </div>
-            <div className="bg-surface-container-lowest p-space-xs rounded">
-              <div className="font-label-caps text-label-caps text-secondary">SHADOW TIME</div>
-              <div className="font-code-md text-code-md font-bold text-on-tertiary-container">90 MIN</div>
-            </div>
-            <div className="bg-surface-container-lowest p-space-xs rounded">
-              <div className="font-label-caps text-label-caps text-secondary">SECTION SPEED</div>
-              <div className="font-code-md text-code-md font-bold text-primary">130 KMPH</div>
-            </div>
-          </div>
-        </section>
+        )}
       </div>
     </main>
   );

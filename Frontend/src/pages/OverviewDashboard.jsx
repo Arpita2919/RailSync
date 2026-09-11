@@ -1,105 +1,213 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  getHealth, getRiskSegments, getCurrentPlan, getTasks, runOptimization,
+  riskLevel, formatTime, deptLabel, formatDuration,
+} from '../services/api';
 
 export default function OverviewDashboard() {
   const [optimizingState, setOptimizingState] = useState('idle');
   const [activeFilter, setActiveFilter] = useState('ALL DEPTS');
   const [selectedNode, setSelectedNode] = useState(null);
 
-  const triggerOptimization = () => {
+  // Real data state
+  const [health, setHealth] = useState(null);
+  const [risks, setRisks] = useState([]);
+  const [plan, setPlan] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  const loadDashboardData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [healthData, riskData, taskData] = await Promise.all([
+        getHealth().catch(() => null),
+        getRiskSegments().catch(() => []),
+        getTasks().catch(() => []),
+      ]);
+      // Plan might not exist yet (404)
+      let planData = null;
+      try { planData = await getCurrentPlan(); } catch {}
+
+      setHealth(healthData);
+      setRisks(riskData);
+      setTasks(taskData);
+      setPlan(planData);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const triggerOptimization = async () => {
     if (optimizingState !== 'idle') return;
     setOptimizingState('solving');
-    setTimeout(() => {
+    try {
+      const result = await runOptimization('balanced', 'both');
       setOptimizingState('optimized');
-      setTimeout(() => {
-        setOptimizingState('idle');
-      }, 2500);
-    }, 1800);
+      // Reload plan data after optimization
+      try { const newPlan = await getCurrentPlan(); setPlan(newPlan); } catch {}
+      setTimeout(() => setOptimizingState('idle'), 2500);
+    } catch (err) {
+      setOptimizingState('idle');
+      alert('Optimization failed: ' + (err.response?.data?.detail || err.message));
+    }
   };
 
   const inspectNode = (stationCode) => {
     setSelectedNode(stationCode);
-    console.log("Telemetry synoptic inspector focused on: " + stationCode);
   };
+
+  // Computed KPIs from real data
+  const highRiskSegments = risks.filter(r => r.risk_30d >= 0.4);
+  const criticalSegments = risks.filter(r => r.risk_30d >= 0.7);
+  const assignments = plan?.assignments || [];
+  const todayBlocks = assignments.length;
+  const avgRisk = risks.length > 0 ? (risks.reduce((s, r) => s + (1 - r.risk_30d), 0) / risks.length * 100).toFixed(1) : '—';
+
+  // Department breakdown from assignments
+  const deptCounts = {};
+  assignments.forEach(a => { deptCounts[a.department] = (deptCounts[a.department] || 0) + 1; });
+
+  // Filter assignments based on active filter
+  const filteredAssignments = activeFilter === 'CRITICAL ONLY'
+    ? assignments.filter(a => a.risk_30d >= 0.7 || a.priority >= 0.8)
+    : assignments;
+
+  // Map segment risks to corridor nodes
+  const getSegmentStatus = (segId) => {
+    const seg = risks.find(r => r.segment_id === segId);
+    if (!seg) return { status: 'CLEAR', risk: 0 };
+    const rl = riskLevel(seg.risk_30d);
+    return { status: rl.label, risk: seg.risk_30d, ...seg };
+  };
+
+  if (loading) {
+    return (
+      <main className="flex flex-col relative w-full">
+        <div className="flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-space-sm">
+            <span className="material-symbols-outlined text-[32px] text-primary animate-spin">autorenew</span>
+            <span className="font-code-sm text-code-sm text-on-surface-variant">Loading real-time data from all layers...</span>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="flex flex-col relative w-full">
       <div className="flex flex-col w-full">
 
+        {/* Connection Status Banner */}
+        {error && (
+          <div className="mx-gutter mt-space-sm px-space-md py-space-sm rounded bg-error-container text-on-error-container flex items-center gap-space-sm">
+            <span className="material-symbols-outlined text-[18px]">error</span>
+            <span className="font-code-sm text-code-sm">Backend connection error: {error}</span>
+            <button onClick={loadDashboardData} className="ml-auto font-code-sm text-code-sm font-bold underline">RETRY</button>
+          </div>
+        )}
+
         {/* Main Content Container */}
         <div className="p-gutter flex flex-col gap-space-lg">
           {/* KPI Metric Cards Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-space-sm">
-            {/* KPI 1: Availability */}
+            {/* KPI 1: Availability (computed from avg risk) */}
             <div className="bg-surface-container-lowest p-space-sm rounded shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between text-secondary">
                 <span className="font-label-caps text-label-caps uppercase">Asset Availability</span>
                 <span className="material-symbols-outlined text-[14px]">speed</span>
               </div>
               <div className="my-space-xs flex items-baseline gap-space-xs">
-                <span className="font-headline-lg text-headline-lg font-bold text-on-surface">94.2%</span>
-                <span className="font-code-sm text-code-sm text-error font-medium">▼ 1.8%</span>
+                <span className="font-headline-lg text-headline-lg font-bold text-on-surface">{avgRisk}%</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="font-code-sm text-code-sm text-on-surface-variant">TGT: 96.0%</span>
-                <span className="font-label-caps text-label-caps bg-error-container text-on-error-container px-1 py-0.5 rounded uppercase font-bold">
-                  SUB-PAR
+                <span className={`font-label-caps text-label-caps px-1 py-0.5 rounded uppercase font-bold ${
+                  parseFloat(avgRisk) >= 96 ? 'bg-tertiary-container text-on-tertiary-container' : 'bg-error-container text-on-error-container'
+                }`}>
+                  {parseFloat(avgRisk) >= 96 ? 'ON TARGET' : 'SUB-PAR'}
                 </span>
               </div>
             </div>
 
-            {/* KPI 2: Risks */}
+            {/* KPI 2: Active High Risks (from Layer 1 ML model) */}
             <div className="bg-surface-container-lowest p-space-sm rounded shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between text-secondary">
                 <span className="font-label-caps text-label-caps uppercase">Active High Risks</span>
-                <span className="w-2 h-2 rounded-full bg-error animate-ping"></span>
+                {highRiskSegments.length > 0 && <span className="w-2 h-2 rounded-full bg-error animate-ping"></span>}
               </div>
               <div className="my-space-xs flex items-baseline gap-space-xs">
-                <span className="font-headline-lg text-headline-lg font-bold text-error">3</span>
+                <span className={`font-headline-lg text-headline-lg font-bold ${highRiskSegments.length > 0 ? 'text-error' : 'text-on-tertiary-container'}`}>
+                  {highRiskSegments.length}
+                </span>
                 <span className="font-code-sm text-code-sm text-on-surface-variant">Track Segs</span>
               </div>
-              <span className="font-code-sm text-code-sm text-error truncate font-semibold">ALJN-UP-04 / CNB-42B</span>
+              <span className="font-code-sm text-code-sm text-error truncate font-semibold">
+                {highRiskSegments.slice(0, 2).map(s => s.segment_id).join(' / ') || 'All clear'}
+              </span>
             </div>
 
-            {/* KPI 3: Planned Blocks */}
+            {/* KPI 3: Planned Blocks (from current plan) */}
             <div className="bg-surface-container-lowest p-space-sm rounded shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between text-secondary">
-                <span className="font-label-caps text-label-caps uppercase">Today's Blocks</span>
+                <span className="font-label-caps text-label-caps uppercase">Planned Blocks</span>
                 <span className="material-symbols-outlined text-[14px]">event_note</span>
               </div>
               <div className="my-space-xs flex items-baseline gap-space-xs">
-                <span className="font-headline-lg text-headline-lg font-bold text-on-surface">14</span>
-                <span className="font-code-sm text-code-sm text-on-tertiary-container font-semibold">APPROVED</span>
+                <span className="font-headline-lg text-headline-lg font-bold text-on-surface">{todayBlocks}</span>
+                <span className="font-code-sm text-code-sm text-on-tertiary-container font-semibold">
+                  {plan ? 'APPROVED' : 'NO PLAN'}
+                </span>
               </div>
               <div className="flex items-center gap-space-xs font-code-sm text-code-sm text-on-surface-variant">
-                <span>9 ENG</span>•<span>3 TRD</span>•<span>2 S&T</span>
+                {Object.entries(deptCounts).map(([dept, count], i) => (
+                  <span key={dept}>{i > 0 && '•'}{count} {dept}</span>
+                ))}
+                {Object.keys(deptCounts).length === 0 && <span>Run optimization to generate</span>}
               </div>
             </div>
 
-            {/* KPI 4: Conflicts */}
+            {/* KPI 4: Total Tasks */}
             <div className="bg-surface-container-lowest p-space-sm rounded shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between text-secondary">
-                <span className="font-label-caps text-label-caps uppercase">Active Conflicts</span>
-                <span className="material-symbols-outlined text-[14px] text-error">warning</span>
+                <span className="font-label-caps text-label-caps uppercase">Pending Tasks</span>
+                <span className="material-symbols-outlined text-[14px] text-secondary">assignment</span>
               </div>
               <div className="my-space-xs flex items-baseline gap-space-xs">
-                <span className="font-headline-lg text-headline-lg font-bold text-error">2</span>
-                <span className="font-code-sm text-code-sm text-error font-medium">OVERLAPS</span>
+                <span className="font-headline-lg text-headline-lg font-bold text-on-surface">{tasks.length}</span>
+                <span className="font-code-sm text-code-sm text-on-surface-variant">DEMANDS</span>
               </div>
-              <span className="font-code-sm text-code-sm text-error truncate">VB 22436 @ 16:15 IST</span>
+              <span className="font-code-sm text-code-sm text-on-surface-variant truncate">
+                {tasks.filter(t => t.claimed_criticality <= 2).length} critical / {tasks.filter(t => t.overdue).length} overdue
+              </span>
             </div>
 
-            {/* KPI 5: Solver Engine Status */}
+            {/* KPI 5: System Health */}
             <div className="bg-surface-container-lowest p-space-sm rounded shadow-sm col-span-2 sm:col-span-1 flex flex-col justify-between">
               <div className="flex items-center justify-between text-secondary">
-                <span className="font-label-caps text-label-caps uppercase">Optimizer #4102</span>
-                <span className="material-symbols-outlined text-[14px] text-on-tertiary-container">check_circle</span>
+                <span className="font-label-caps text-label-caps uppercase">System Health</span>
+                <span className={`material-symbols-outlined text-[14px] ${health?.status === 'ok' ? 'text-on-tertiary-container' : 'text-error'}`}>
+                  {health?.status === 'ok' ? 'check_circle' : 'error'}
+                </span>
               </div>
               <div className="my-space-xs flex items-baseline gap-space-xs">
-                <span className="font-headline-lg text-headline-lg font-bold text-on-surface">91.4</span>
-                <span className="font-code-sm text-code-sm text-on-surface-variant">PARETO</span>
+                <span className="font-headline-lg text-headline-lg font-bold text-on-surface">
+                  {health?.status === 'ok' ? 'OK' : health?.status?.toUpperCase() || '—'}
+                </span>
               </div>
-              <span className="font-code-sm text-code-sm text-on-surface-variant truncate">Completed 2m 14s ago</span>
+              <div className="flex items-center gap-space-xs font-code-sm text-code-sm text-on-surface-variant">
+                <span>L1:{health?.layer1 === 'available' ? '✓' : '✗'}</span>
+                <span>L2:{health?.layer2 === 'available' ? '✓' : '✗'}</span>
+                <span>L3:{health?.layer3 === 'available' ? '✓' : '✗'}</span>
+              </div>
             </div>
           </div>
 
@@ -116,12 +224,12 @@ export default function OverviewDashboard() {
                 {optimizingState === 'solving' ? (
                   <>
                     <span className="material-symbols-outlined text-[16px] animate-spin text-tertiary-fixed">autorenew</span>
-                    <span className="font-code-sm text-code-sm uppercase font-bold tracking-wide">SOLVING CBC MTR...</span>
+                    <span className="font-code-sm text-code-sm uppercase font-bold tracking-wide">SOLVING CP-SAT...</span>
                   </>
                 ) : optimizingState === 'optimized' ? (
                   <>
                     <span className="material-symbols-outlined text-[16px] text-tertiary-fixed">check_circle</span>
-                    <span className="font-code-sm text-code-sm uppercase font-bold tracking-wide">OPTIMIZED (#4103)</span>
+                    <span className="font-code-sm text-code-sm uppercase font-bold tracking-wide">OPTIMIZED ✓</span>
                   </>
                 ) : (
                   <>
@@ -132,250 +240,165 @@ export default function OverviewDashboard() {
               </button>
               <div className="hidden sm:flex flex-col">
                 <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">SOLVER ENGINE</span>
-                <span className="font-code-sm text-code-sm text-primary font-semibold">COIN-OR CBC (PARALLEL)</span>
+                <span className="font-code-sm text-code-sm text-primary font-semibold">
+                  {health?.layer3 === 'available' ? 'CP-SAT (OR-Tools)' : 'UNAVAILABLE'}
+                </span>
               </div>
             </div>
             <div className="flex items-center gap-space-xs overflow-x-auto no-scrollbar">
-              <button
-                onClick={() => setActiveFilter('ALL DEPTS')}
-                className={`px-space-sm py-1 rounded font-code-sm text-code-sm font-semibold shrink-0 transition-colors ${
-                  activeFilter === 'ALL DEPTS'
-                    ? 'bg-primary text-on-primary'
-                    : 'bg-surface-container-lowest hover:bg-surface-container text-on-surface'
-                }`}
-              >
-                ALL DEPTS
-              </button>
-              <button
-                onClick={() => setActiveFilter('CRITICAL ONLY')}
-                className={`px-space-sm py-1 rounded font-code-sm text-code-sm shrink-0 transition-colors ${
-                  activeFilter === 'CRITICAL ONLY'
-                    ? 'bg-error text-on-error font-semibold'
-                    : 'bg-surface-container-lowest hover:bg-surface-container text-error'
-                }`}
-              >
-                CRITICAL ONLY
-              </button>
-              <button
-                onClick={() => setActiveFilter('NEXT 8 HRS')}
-                className={`px-space-sm py-1 rounded font-code-sm text-code-sm shrink-0 transition-colors ${
-                  activeFilter === 'NEXT 8 HRS'
-                    ? 'bg-primary text-on-primary font-semibold'
-                    : 'bg-surface-container-lowest hover:bg-surface-container text-on-surface'
-                }`}
-              >
-                NEXT 8 HRS
-              </button>
-              <button className="bg-surface-container-lowest hover:bg-surface-container text-on-surface p-1 rounded shrink-0">
-                <span className="material-symbols-outlined text-[16px]">tune</span>
-              </button>
+              {['ALL DEPTS', 'CRITICAL ONLY'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setActiveFilter(f)}
+                  className={`px-space-sm py-1 rounded font-code-sm text-code-sm font-semibold shrink-0 transition-colors ${
+                    activeFilter === f
+                      ? (f === 'CRITICAL ONLY' ? 'bg-error text-on-error' : 'bg-primary text-on-primary')
+                      : 'bg-surface-container-lowest hover:bg-surface-container text-on-surface'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Corridor Schematic Ribbon (Interactive Railway Track Map) */}
+          {/* Corridor Schematic Ribbon — Built from real risk segments */}
           <div className="bg-surface-container-lowest p-space-md rounded shadow-sm flex flex-col gap-space-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-space-xs">
                 <span className="material-symbols-outlined text-[16px] text-secondary">linear_scale</span>
-                <h2 className="font-headline-sm text-headline-sm text-on-surface">Corridor Schematic (UP Quad)</h2>
+                <h2 className="font-headline-sm text-headline-sm text-on-surface">Corridor Segments (Layer 1 Risk)</h2>
               </div>
               <div className="flex items-center gap-space-md font-label-caps text-label-caps">
                 <span className="flex items-center gap-1 text-on-surface">
-                  <span className="w-2 h-2 rounded-full bg-tertiary-container"></span> CLEAR
+                  <span className="w-2 h-2 rounded-full bg-tertiary-container"></span> LOW
                 </span>
                 <span className="flex items-center gap-1 text-on-surface">
-                  <span className="w-2 h-2 rounded-full bg-secondary"></span> PSR/CAUTION
+                  <span className="w-2 h-2 rounded-full bg-secondary"></span> HIGH
                 </span>
                 <span className="flex items-center gap-1 text-on-surface">
-                  <span className="w-2 h-2 rounded-full bg-error"></span> DEFECT/BLOCK
+                  <span className="w-2 h-2 rounded-full bg-error"></span> CRITICAL
                 </span>
               </div>
             </div>
 
-            {/* Linear Track Segments Visualizer */}
+            {/* Segment Grid */}
             <div className="relative w-full overflow-x-auto py-space-sm no-scrollbar">
-              <div className="min-w-[700px] flex flex-col gap-2">
-                {/* Track Line */}
-                <div className="relative h-2 bg-surface-container-highest rounded-full w-full flex items-center">
-                  <div className="absolute left-0 w-[18%] h-2 bg-tertiary-fixed-dim rounded-l-full"></div>
-                  <div className="absolute left-[18%] w-[20%] h-2 bg-secondary-fixed-dim"></div>
-                  <div className="absolute left-[38%] w-[18%] h-2 bg-error"></div>
-                  <div className="absolute left-[56%] w-[22%] h-2 bg-tertiary-fixed-dim"></div>
-                  <div className="absolute left-[78%] w-[12%] h-2 bg-secondary-fixed-dim"></div>
-                  <div className="absolute left-[90%] w-[10%] h-2 bg-error rounded-r-full"></div>
+              {risks.length === 0 ? (
+                <div className="text-center py-space-md font-code-sm text-code-sm text-on-surface-variant">
+                  No risk segments available. Check Layer 1 connection.
                 </div>
-
-                {/* Waypoints / Stations Nodes */}
-                <div className="grid grid-cols-6 gap-space-xs text-left pt-space-xs">
-                  {/* Node 1: ALJN */}
-                  <div
-                    className={`flex flex-col gap-0.5 cursor-pointer p-1 rounded transition-colors ${
-                      selectedNode === 'ALJN' ? 'ring-2 ring-primary bg-surface-container-low' : ''
-                    }`}
-                    onClick={() => inspectNode('ALJN')}
-                  >
-                    <div className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-tertiary-container ring-2 ring-surface-container-lowest"></span>
-                      <span className="font-code-lg text-code-lg font-bold text-on-surface">ALJN</span>
-                    </div>
-                    <span className="font-label-caps text-label-caps text-on-tertiary-container font-semibold">KM 1024 • CLEAR</span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant truncate">Aligarh Jn. Quad</span>
+              ) : (
+                <div className="min-w-[700px] flex flex-col gap-2">
+                  {/* Track Line — colored by risk level */}
+                  <div className="relative h-2 bg-surface-container-highest rounded-full w-full flex items-center">
+                    {risks.map((seg, i) => {
+                      const width = 100 / risks.length;
+                      const rl = riskLevel(seg.risk_30d);
+                      const bgColor = rl.color === 'error' ? 'bg-error'
+                        : rl.color === 'secondary' ? 'bg-secondary-fixed-dim'
+                        : 'bg-tertiary-fixed-dim';
+                      return (
+                        <div
+                          key={seg.segment_id}
+                          className={`absolute h-2 ${bgColor} ${i === 0 ? 'rounded-l-full' : ''} ${i === risks.length - 1 ? 'rounded-r-full' : ''}`}
+                          style={{ left: `${i * width}%`, width: `${width}%` }}
+                        ></div>
+                      );
+                    })}
                   </div>
 
-                  {/* Node 2: SOM */}
-                  <div
-                    className={`flex flex-col gap-0.5 cursor-pointer p-1 rounded transition-colors ${
-                      selectedNode === 'SOM' ? 'ring-2 ring-secondary bg-surface-container-low' : ''
-                    }`}
-                    onClick={() => inspectNode('SOM')}
-                  >
-                    <div className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-secondary ring-2 ring-surface-container-lowest"></span>
-                      <span className="font-code-lg text-code-lg font-bold text-on-surface">SOM</span>
-                    </div>
-                    <span className="font-label-caps text-label-caps text-on-secondary-fixed-variant font-semibold">KM 1042 • PSR 110</span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant truncate">High Track Vib</span>
-                  </div>
-
-                  {/* Node 3: KRJ */}
-                  <div
-                    className={`flex flex-col gap-0.5 cursor-pointer bg-error-container/40 p-1 rounded transition-colors ${
-                      selectedNode === 'KRJ' ? 'ring-2 ring-error' : ''
-                    }`}
-                    onClick={() => inspectNode('KRJ')}
-                  >
-                    <div className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-error ring-2 ring-surface-container-lowest animate-pulse"></span>
-                      <span className="font-code-lg text-code-lg font-bold text-error">KRJ</span>
-                    </div>
-                    <span className="font-label-caps text-label-caps text-error font-bold">KM 1134 • CRITICAL</span>
-                    <span className="font-body-sm text-body-sm text-error truncate font-medium">USFD Defect 87%</span>
-                  </div>
-
-                  {/* Node 4: TDL */}
-                  <div
-                    className={`flex flex-col gap-0.5 cursor-pointer p-1 rounded transition-colors ${
-                      selectedNode === 'TDL' ? 'ring-2 ring-primary bg-surface-container-low' : ''
-                    }`}
-                    onClick={() => inspectNode('TDL')}
-                  >
-                    <div className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-tertiary-container ring-2 ring-surface-container-lowest"></span>
-                      <span className="font-code-lg text-code-lg font-bold text-on-surface">TDL</span>
-                    </div>
-                    <span className="font-label-caps text-label-caps text-on-tertiary-container font-semibold">KM 1248 • CLEAR</span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant truncate">Tundla Junction</span>
-                  </div>
-
-                  {/* Node 5: FZD */}
-                  <div
-                    className={`flex flex-col gap-0.5 cursor-pointer p-1 rounded transition-colors ${
-                      selectedNode === 'FZD' ? 'ring-2 ring-secondary bg-surface-container-low' : ''
-                    }`}
-                    onClick={() => inspectNode('FZD')}
-                  >
-                    <div className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-secondary ring-2 ring-surface-container-lowest"></span>
-                      <span className="font-code-lg text-code-lg font-bold text-on-surface">FZD</span>
-                    </div>
-                    <span className="font-label-caps text-label-caps text-on-secondary-fixed-variant font-semibold">KM 1272 • OHE DUE</span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant truncate">Cantilever Check</span>
-                  </div>
-
-                  {/* Node 6: CNB */}
-                  <div
-                    className={`flex flex-col gap-0.5 cursor-pointer bg-error-container/40 p-1 rounded transition-colors ${
-                      selectedNode === 'CNB' ? 'ring-2 ring-error' : ''
-                    }`}
-                    onClick={() => inspectNode('CNB')}
-                  >
-                    <div className="flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-full bg-error ring-2 ring-surface-container-lowest animate-pulse"></span>
-                      <span className="font-code-lg text-code-lg font-bold text-error">CNB</span>
-                    </div>
-                    <span className="font-label-caps text-label-caps text-error font-bold">KM 1435 • FAULT</span>
-                    <span className="font-body-sm text-body-sm text-error truncate font-medium">Pt. 42B Overheat</span>
+                  {/* Segment Nodes */}
+                  <div className={`grid gap-space-xs text-left pt-space-xs`} style={{ gridTemplateColumns: `repeat(${Math.min(risks.length, 6)}, 1fr)` }}>
+                    {risks.slice(0, 6).map(seg => {
+                      const rl = riskLevel(seg.risk_30d);
+                      const isCrit = rl.label === 'CRITICAL';
+                      const isHigh = rl.label === 'HIGH' || isCrit;
+                      return (
+                        <div
+                          key={seg.segment_id}
+                          className={`flex flex-col gap-0.5 cursor-pointer p-1 rounded transition-colors ${
+                            isCrit ? 'bg-error-container/40' : ''
+                          } ${selectedNode === seg.segment_id ? `ring-2 ring-${rl.color} bg-surface-container-low` : ''}`}
+                          onClick={() => inspectNode(seg.segment_id)}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span className={`w-2.5 h-2.5 rounded-full ring-2 ring-surface-container-lowest ${
+                              isCrit ? 'bg-error animate-pulse' : isHigh ? 'bg-secondary' : 'bg-tertiary-container'
+                            }`}></span>
+                            <span className={`font-code-lg text-code-lg font-bold ${isCrit ? 'text-error' : 'text-on-surface'}`}>
+                              {seg.segment_id.replace('SEG-', '').slice(0, 8)}
+                            </span>
+                          </div>
+                          <span className={`font-label-caps text-label-caps font-semibold ${
+                            isCrit ? 'text-error font-bold' : isHigh ? 'text-on-secondary-fixed-variant' : 'text-on-tertiary-container'
+                          }`}>
+                            Risk: {(seg.risk_30d * 100).toFixed(1)}% • {rl.label}
+                          </span>
+                          <span className="font-body-sm text-body-sm text-on-surface-variant truncate">
+                            {seg.corridor || seg.division || '—'}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* Active Operational Priority Alerts (SCADA Trough) */}
-          <div className="flex flex-col gap-space-xs">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-space-xs">
-                <span className="material-symbols-outlined text-[16px] text-error">notifications_active</span>
-                <h2 className="font-headline-sm text-headline-sm text-on-surface">Critical Operational Directives & Clashes</h2>
-              </div>
-              <span className="font-label-caps text-label-caps bg-error text-on-error px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">
-                2 UNACKNOWLEDGED
-              </span>
-            </div>
-
-            {/* Alert Card 1 (Red Critical) */}
-            <div className="bg-surface-container-lowest p-space-md rounded shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-space-sm border-l-4 border-l-error">
-              <div className="flex items-start gap-space-sm min-w-0">
-                <div className="p-1 bg-error-container text-on-error-container rounded shrink-0 mt-0.5">
-                  <span className="material-symbols-outlined text-[20px]">fmd_bad</span>
+          {/* Critical Alerts — from real risk segments */}
+          {criticalSegments.length > 0 && (
+            <div className="flex flex-col gap-space-xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-space-xs">
+                  <span className="material-symbols-outlined text-[16px] text-error">notifications_active</span>
+                  <h2 className="font-headline-sm text-headline-sm text-on-surface">Critical Risk Alerts (ML Predictions)</h2>
                 </div>
-                <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-space-xs flex-wrap">
-                    <span className="font-label-caps text-label-caps bg-error text-on-error px-1 rounded uppercase font-bold">
-                      TRACK SAFETY RED
-                    </span>
-                    <span className="font-code-sm text-code-sm font-bold text-on-surface">KRJ-UP Track Km 1134.2</span>
-                    <span className="font-code-sm text-code-sm text-secondary font-medium">| USFD Flaw Detection</span>
+                <span className="font-label-caps text-label-caps bg-error text-on-error px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">
+                  {criticalSegments.length} CRITICAL
+                </span>
+              </div>
+
+              {criticalSegments.slice(0, 3).map(seg => (
+                <div key={seg.segment_id} className="bg-surface-container-lowest p-space-md rounded shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-space-sm border-l-4 border-l-error">
+                  <div className="flex items-start gap-space-sm min-w-0">
+                    <div className="p-1 bg-error-container text-on-error-container rounded shrink-0 mt-0.5">
+                      <span className="material-symbols-outlined text-[20px]">fmd_bad</span>
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <div className="flex items-center gap-space-xs flex-wrap">
+                        <span className="font-label-caps text-label-caps bg-error text-on-error px-1 rounded uppercase font-bold">
+                          CRITICAL RISK
+                        </span>
+                        <span className="font-code-sm text-code-sm font-bold text-on-surface">{seg.segment_id}</span>
+                        <span className="font-code-sm text-code-sm text-secondary font-medium">
+                          | Risk: {(seg.risk_30d * 100).toFixed(1)}% | Downtime: {seg.expected_downtime_days?.toFixed(1)}d
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-space-xs shrink-0 w-full md:w-auto justify-end">
+                    <Link
+                      to="/segment-why"
+                      className="bg-surface-container hover:bg-surface-container-highest text-on-surface px-space-sm py-1 rounded font-code-sm text-code-sm font-semibold"
+                    >
+                      VIEW DETAILS
+                    </Link>
+                    <button
+                      onClick={triggerOptimization}
+                      className="bg-primary hover:bg-primary-container text-on-primary px-space-md py-1 rounded font-code-sm text-code-sm font-bold flex items-center gap-1 shadow-sm"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
+                      AUTO-INSERT BLOCK
+                    </button>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-space-xs shrink-0 w-full md:w-auto justify-end">
-                <Link
-                  to="/segment-why"
-                  className="bg-surface-container hover:bg-surface-container-highest text-on-surface px-space-sm py-1 rounded font-code-sm text-code-sm font-semibold"
-                >
-                  VIEW LOG
-                </Link>
-                <button
-                  onClick={triggerOptimization}
-                  className="bg-primary hover:bg-primary-container text-on-primary px-space-md py-1 rounded font-code-sm text-code-sm font-bold flex items-center gap-1 shadow-sm"
-                >
-                  <span className="material-symbols-outlined text-[14px]">auto_fix_high</span>
-                  AUTO-INSERT BLOCK
-                </button>
-              </div>
+              ))}
             </div>
+          )}
 
-            {/* Alert Card 2 (Amber Conflict) */}
-            <div className="bg-surface-container-lowest p-space-md rounded shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-space-sm border-l-4 border-l-secondary">
-              <div className="flex items-start gap-space-sm min-w-0">
-                <div className="p-1 bg-secondary-container text-on-secondary-container rounded shrink-0 mt-0.5">
-                  <span className="material-symbols-outlined text-[20px]">history_toggle_off</span>
-                </div>
-                <div className="flex flex-col min-w-0">
-                  <div className="flex items-center gap-space-xs flex-wrap">
-                    <span className="font-label-caps text-label-caps bg-secondary-fixed text-on-secondary-fixed px-1 rounded uppercase font-bold">
-                      PATH OVERLAP CONFLICT
-                    </span>
-                    <span className="font-code-sm text-code-sm font-bold text-on-surface">TRD Power Block vs. 12004 Gomti Exp</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-space-xs shrink-0 w-full md:w-auto justify-end">
-                <Link
-                  to="/disruption"
-                  className="bg-surface-container hover:bg-surface-container-highest text-on-surface px-space-sm py-1 rounded font-code-sm text-code-sm font-semibold"
-                >
-                  SHIFT PATH
-                </Link>
-                <button className="bg-surface-container-highest hover:bg-surface-container-high text-primary px-space-md py-1 rounded font-code-sm text-code-sm font-bold flex items-center gap-1">
-                  APPROVE CONFLICT
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Maintenance Corridor Schedule (Data Table) */}
+          {/* Maintenance Schedule Table — from real plan assignments */}
           <div className="bg-surface-container-lowest p-space-md rounded shadow-sm flex flex-col gap-space-sm">
             <div className="flex items-center justify-between flex-wrap gap-space-xs">
               <div className="flex items-center gap-space-xs">
@@ -383,112 +406,71 @@ export default function OverviewDashboard() {
                 <h2 className="font-headline-sm text-headline-sm text-on-surface">Maintenance Operational Windows</h2>
               </div>
               <div className="flex items-center gap-space-sm">
-                <span className="font-label-caps text-label-caps text-on-surface-variant">AUTO-REFRESH: 15s</span>
-                <button className="text-primary hover:text-on-surface flex items-center font-code-sm text-code-sm">
+                <span className="font-label-caps text-label-caps text-on-surface-variant">
+                  {plan ? `PLAN: ${plan.plan_id}` : 'NO ACTIVE PLAN'}
+                </span>
+                <button onClick={loadDashboardData} className="text-primary hover:text-on-surface flex items-center font-code-sm text-code-sm">
                   <span className="material-symbols-outlined text-[14px]">refresh</span>
                 </button>
               </div>
             </div>
 
-            {/* Tabular List Component */}
             <div className="overflow-x-auto no-scrollbar">
               <table className="w-full text-left border-collapse min-w-[620px]">
                 <thead>
                   <tr className="bg-surface-container text-on-surface-variant font-label-caps text-label-caps uppercase">
-                    <th className="py-space-xs px-space-sm font-bold">Block ID</th>
+                    <th className="py-space-xs px-space-sm font-bold">Task ID</th>
                     <th className="py-space-xs px-space-sm font-bold">Dept</th>
-                    <th className="py-space-xs px-space-sm font-bold">Section</th>
+                    <th className="py-space-xs px-space-sm font-bold">Segment</th>
                     <th className="py-space-xs px-space-sm font-bold">Time Window</th>
                     <th className="py-space-xs px-space-sm font-bold">Duration</th>
-                    <th className="py-space-xs px-space-sm font-bold">Work Scope</th>
+                    <th className="py-space-xs px-space-sm font-bold">Risk</th>
                     <th className="py-space-xs px-space-sm font-bold text-right">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface-container-high font-code-sm text-code-sm">
-                  {/* Row 1 */}
-                  <tr className="hover:bg-surface-container-low transition-colors">
-                    <td className="py-space-sm px-space-sm font-bold text-primary">BLK-2403-09</td>
-                    <td className="py-space-sm px-space-sm">
-                      <span className="bg-surface-container px-1 py-0.5 rounded font-label-caps text-label-caps text-on-surface font-semibold">
-                        ENG (P-WAY)
-                      </span>
-                    </td>
-                    <td className="py-space-sm px-space-sm font-semibold text-on-surface">KRJ-UP (Km 1134)</td>
-                    <td className="py-space-sm px-space-sm text-on-surface">15:30 - 17:00</td>
-                    <td className="py-space-sm px-space-sm text-on-surface-variant">90 Min</td>
-                    <td className="py-space-sm px-space-sm text-on-surface-variant truncate max-w-[160px]">USFD Weld Cropping & Clamp</td>
-                    <td className="py-space-sm px-space-sm text-right">
-                      <span className="bg-tertiary-fixed text-on-tertiary-fixed px-1.5 py-0.5 rounded font-label-caps text-label-caps font-bold">
-                        APPROVED
-                      </span>
-                    </td>
-                  </tr>
-
-                  {/* Row 2 */}
-                  <tr className="hover:bg-surface-container-low transition-colors bg-surface-container-lowest">
-                    <td className="py-space-sm px-space-sm font-bold text-primary">BLK-2403-11</td>
-                    <td className="py-space-sm px-space-sm">
-                      <span className="bg-secondary-container px-1 py-0.5 rounded font-label-caps text-label-caps text-on-secondary-container font-semibold">
-                        TRD (OHE)
-                      </span>
-                    </td>
-                    <td className="py-space-sm px-space-sm font-semibold text-on-surface">ALJN-DN Line</td>
-                    <td className="py-space-sm px-space-sm text-on-surface">17:15 - 18:45</td>
-                    <td className="py-space-sm px-space-sm text-on-surface-variant">90 Min</td>
-                    <td className="py-space-sm px-space-sm text-on-surface-variant truncate max-w-[160px]">Contact Wire Tensioning</td>
-                    <td className="py-space-sm px-space-sm text-right">
-                      <span className="bg-surface-container-highest text-on-surface-variant px-1.5 py-0.5 rounded font-label-caps text-label-caps font-bold">
-                        PROVISIONAL
-                      </span>
-                    </td>
-                  </tr>
-
-                  {/* Row 3 */}
-                  <tr className="hover:bg-surface-container-low transition-colors bg-error-container/20">
-                    <td className="py-space-sm px-space-sm font-bold text-error">BLK-2403-12</td>
-                    <td className="py-space-sm px-space-sm">
-                      <span className="bg-surface-container px-1 py-0.5 rounded font-label-caps text-label-caps text-on-surface font-semibold">
-                        S&T (SIG)
-                      </span>
-                    </td>
-                    <td className="py-space-sm px-space-sm font-bold text-error">CNB Yard Pt 42B</td>
-                    <td className="py-space-sm px-space-sm text-on-surface">23:00 - 02:00</td>
-                    <td className="py-space-sm px-space-sm text-on-surface-variant">180 Min</td>
-                    <td className="py-space-sm px-space-sm text-on-surface-variant truncate max-w-[160px]">Motor Overhaul & Interlock Check</td>
-                    <td className="py-space-sm px-space-sm text-right">
-                      <span className="bg-error text-on-error px-1.5 py-0.5 rounded font-label-caps text-label-caps font-bold animate-pulse">
-                        CONFLICT
-                      </span>
-                    </td>
-                  </tr>
-
-                  {/* Row 4 */}
-                  <tr className="hover:bg-surface-container-low transition-colors">
-                    <td className="py-space-sm px-space-sm font-bold text-primary">BLK-2403-14</td>
-                    <td className="py-space-sm px-space-sm">
-                      <span className="bg-surface-container px-1 py-0.5 rounded font-label-caps text-label-caps text-on-surface font-semibold">
-                        ENG (P-WAY)
-                      </span>
-                    </td>
-                    <td className="py-space-sm px-space-sm font-semibold text-on-surface">TDL-FZD Loop</td>
-                    <td className="py-space-sm px-space-sm text-on-surface">02:30 - 05:00</td>
-                    <td className="py-space-sm px-space-sm text-on-surface-variant">150 Min</td>
-                    <td className="py-space-sm px-space-sm text-on-surface-variant truncate max-w-[160px]">Ballast Tamping (DUOMAT)</td>
-                    <td className="py-space-sm px-space-sm text-right">
-                      <span className="bg-tertiary-fixed text-on-tertiary-fixed px-1.5 py-0.5 rounded font-label-caps text-label-caps font-bold">
-                        APPROVED
-                      </span>
-                    </td>
-                  </tr>
+                  {filteredAssignments.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="py-space-md px-space-sm text-center text-on-surface-variant">
+                        {plan ? 'No assignments match the current filter.' : 'No plan generated yet. Click "GENERATE OPTIMIZATION" to create one.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredAssignments.map((a, i) => (
+                      <tr key={a.task_id + i} className="hover:bg-surface-container-low transition-colors">
+                        <td className="py-space-sm px-space-sm font-bold text-primary">{a.task_id}</td>
+                        <td className="py-space-sm px-space-sm">
+                          <span className="bg-surface-container px-1 py-0.5 rounded font-label-caps text-label-caps text-on-surface font-semibold">
+                            {a.department}
+                          </span>
+                        </td>
+                        <td className="py-space-sm px-space-sm font-semibold text-on-surface">{a.segment_id}</td>
+                        <td className="py-space-sm px-space-sm text-on-surface">
+                          {formatTime(a.block_start)} - {formatTime(a.block_end)}
+                        </td>
+                        <td className="py-space-sm px-space-sm text-on-surface-variant">{formatDuration(a.duration_hrs)}</td>
+                        <td className="py-space-sm px-space-sm text-on-surface-variant">
+                          {a.risk_30d != null ? `${(a.risk_30d * 100).toFixed(0)}%` : '—'}
+                        </td>
+                        <td className="py-space-sm px-space-sm text-right">
+                          <span className="bg-tertiary-fixed text-on-tertiary-fixed px-1.5 py-0.5 rounded font-label-caps text-label-caps font-bold">
+                            SCHEDULED
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
 
-            {/* Quick Action Footnote */}
             <div className="flex items-center justify-between pt-space-xs text-secondary">
-              <span className="font-body-sm text-body-sm">Showing 4 of 14 programmed operational windows for cycle 24-03</span>
+              <span className="font-body-sm text-body-sm">
+                Showing {filteredAssignments.length} of {assignments.length} assignments
+                {plan && ` • Policy: ${plan.policy}`}
+              </span>
               <Link to="/planner" className="font-code-sm text-code-sm text-primary font-bold hover:underline flex items-center gap-0.5">
-                FULL SECTION SCHEDULE
+                FULL BLOCK PLANNER
                 <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
               </Link>
             </div>
