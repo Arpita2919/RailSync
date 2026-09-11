@@ -166,6 +166,11 @@ def run_whatif(db: Session, request: WhatIfRequest) -> WhatIfResponse:
                     b_end = b_start + timedelta(hours=st.duration_hrs)
 
                 meta = task_meta.get(st.task_id, {})
+                seg_risk = risk_data.get(st.segment, {}) if risk_data else {}
+                exp_downtime = meta.get("expected_downtime_days")
+                if exp_downtime is None:
+                    exp_downtime = seg_risk.get("expected_downtime_days")
+
                 a_out = AssignmentOut(
                     task_id=st.task_id,
                     segment_id=st.segment,
@@ -177,13 +182,22 @@ def run_whatif(db: Session, request: WhatIfRequest) -> WhatIfResponse:
                     risk_30d=st.risk_30d,
                     reason=st.remarks,
                     explanation={
-                        "primary_reason": st.remarks,
+                        "primary_reason": st.remarks or "Scheduled into optimal conflict-free possession window.",
+                        "claimed_criticality": st.claimed_criticality,
+                        "risk_30d": st.risk_30d,
+                        "expected_downtime_days": exp_downtime,
+                        "duration_hrs": st.duration_hrs,
+                        "assigned_block": st.assigned_block,
+                        "passenger_conflict": "avoided",
                         "freight_delays": st.freight_conflict_count,
                         "is_high_risk": st.is_high_risk_critical,
+                        "window_index": st.window_index,
+                        "confidence": meta.get("confidence") or seg_risk.get("confidence"),
                     },
                     constraint_summary={
                         "assigned_block": st.assigned_block,
                         "freight_delay_penalty": st.freight_penalty_score,
+                        "is_high_risk": st.is_high_risk_critical,
                     },
                     consolidation_group=meta.get("consolidation_group"),
                 )

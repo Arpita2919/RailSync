@@ -292,6 +292,7 @@ def optimize(
         policy=policy,
         horizon_days=horizon_days,
         base_date=base_date,
+        risk_data=risk_data,
     )
 
 
@@ -396,6 +397,7 @@ def _map_optimization_result_to_response(
     policy: str,
     horizon_days: int,
     base_date: datetime,
+    risk_data: Optional[dict[str, dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Transforms Layer 3 OptimizationResult to Backend response dictionary."""
     run_id = f"OPT-{datetime.now().strftime('%Y-%m')}-{uuid.uuid4().hex[:6].upper()}"
@@ -423,13 +425,24 @@ def _map_optimization_result_to_response(
                 b_end = b_start + timedelta(hours=st.duration_hrs)
 
             meta = task_meta.get(st.task_id, {})
+            seg_risk = (risk_data.get(st.segment, {}) if risk_data else {})
+
+            exp_downtime = meta.get("expected_downtime_days")
+            if exp_downtime is None:
+                exp_downtime = seg_risk.get("expected_downtime_days")
 
             explanation = {
                 "primary_reason": st.remarks or "Scheduled into optimal conflict-free possession window.",
+                "claimed_criticality": st.claimed_criticality,
+                "risk_30d": st.risk_30d,
+                "expected_downtime_days": exp_downtime,
+                "duration_hrs": st.duration_hrs,
+                "assigned_block": st.assigned_block,
+                "passenger_conflict": "avoided",
                 "freight_delays": st.freight_conflict_count,
                 "is_high_risk": st.is_high_risk_critical,
-                "claimed_criticality": st.claimed_criticality,
                 "window_index": st.window_index,
+                "confidence": meta.get("confidence") or seg_risk.get("confidence"),
             }
 
             assignments.append({

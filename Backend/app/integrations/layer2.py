@@ -111,7 +111,8 @@ def negotiate(
             overdue=task.get("overdue", False),
         )
 
-        scored.append({
+        task_entry = dict(task)
+        task_entry.update({
             "task_id": task["task_id"],
             "segment_id": task["segment_id"],
             "department": task["department"],
@@ -121,6 +122,7 @@ def negotiate(
             "weighted_priority": priority,
             "consolidation_group": consolidation_map.get(task["task_id"]),
         })
+        scored.append(task_entry)
 
     scored.sort(key=lambda x: x["weighted_priority"], reverse=True)
     unique_groups = len(set(v for v in consolidation_map.values()))
