@@ -10,13 +10,16 @@ from pydantic import BaseModel
 
 class FeatureContribution(BaseModel):
     name: str
-    value: float
-    contribution: float
+    importance: Optional[float] = None
+    value: Optional[float] = None
+    contribution: Optional[float] = None
 
 
 class SurvivalPoint(BaseModel):
     day: int
     survival_probability: float
+    daily_hazard: Optional[float] = None
+    cumulative_failure_probability: Optional[float] = None
 
 
 class RiskPredictionResponse(BaseModel):
