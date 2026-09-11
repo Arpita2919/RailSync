@@ -1,0 +1,69 @@
+"""RailSync 2.0 — FastAPI application entry point.
+
+AI-Powered Automatic Block Planning & Digital Twin for Indian Railways.
+Layer 4: API Orchestration + Persistence + Explanation + What-If + Feedback
+"""
+
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.routes import feedback, health, negotiation, optimization, plans, risk, tasks
+from app.core.config import settings
+from app.core.logging import get_logger, setup_logging
+
+log = get_logger("main")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    setup_logging()
+    log.info("RailSync 2.0 Layer 4 starting up")
+
+    # Eagerly verify DB connection at startup
+    try:
+        from app.db.database import check_db_health
+        if check_db_health():
+            log.info("Database connection verified")
+        else:
+            log.warning("Database connection failed — endpoints requiring DB will error")
+    except Exception as e:
+        log.warning("Database not configured: %s", e)
+
+    yield
+    log.info("RailSync 2.0 Layer 4 shutting down")
+
+
+app = FastAPI(
+    title="RailSync 2.0 — Layer 4 API",
+    description=(
+        "AI-Powered Automatic Block Planning & Digital Twin for Indian Railways.\n\n"
+        "Orchestrates Layer 1 (Risk/ML), Layer 2 (Negotiation), and Layer 3 (CP-SAT Optimization) "
+        "into a unified REST API for the React Dashboard.\n\n"
+        "**Prototype Note:** This system uses synthetic/normalized data for demonstration. "
+        "It does not have live production TMS/SMMS/TDMS/COA access."
+    ),
+    version="2.0.0",
+    lifespan=lifespan,
+)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register routes
+app.include_router(health.router)
+app.include_router(tasks.router)
+app.include_router(risk.router)
+app.include_router(negotiation.router)
+app.include_router(optimization.router)
+app.include_router(plans.router)
+app.include_router(feedback.router)
