@@ -32,11 +32,20 @@ class OptimizeRequest(BaseModel):
 
 
 class WhatIfRequest(BaseModel):
-    type: str = Field(..., min_length=1)
-    segment_id: str = Field(..., min_length=1)
-    time: Optional[str] = None
-    severity: str = Field(default="moderate")
+    # Disruption scenario fields (Layer 3 contract)
+    scenario_id: Optional[str] = None
     description: Optional[str] = None
+    emergency_tasks: Optional[list[dict[str, Any]]] = None
+    cancelled_blocks: Optional[list[str]] = None
+    modified_passenger_conflicts: Optional[dict[str, dict[str, int]]] = None
+    modified_block_durations: Optional[dict[str, float]] = None
+    locked_assignments: Optional[dict[str, str]] = None
+
+    # Backward compatibility fields
+    type: Optional[str] = Field(default=None)
+    segment_id: Optional[str] = Field(default=None)
+    time: Optional[str] = None
+    severity: Optional[str] = Field(default="moderate")
 
 
 class AssignmentOut(BaseModel):
@@ -51,6 +60,7 @@ class AssignmentOut(BaseModel):
     risk_30d: Optional[float] = None
     reason: Optional[str] = None
     explanation: Optional[dict[str, Any]] = None
+    constraint_summary: Optional[dict[str, Any]] = None
     consolidation_group: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -71,21 +81,25 @@ class OptimizeResponse(BaseModel):
     total_assignments: int = 0
     error_message: Optional[str] = None
     affected_tasks: list[str] = []
+    solver_status: Optional[str] = None
 
 
 class PlanDiff(BaseModel):
     task_id: str
-    change_type: str  # added, removed, moved, modified
+    change_type: str  # added, removed, moved, modified, RESCHEDULED, NEWLY_SCHEDULED, DISPLACED_UNASSIGNED
     old_start: Optional[datetime] = None
     old_end: Optional[datetime] = None
     new_start: Optional[datetime] = None
     new_end: Optional[datetime] = None
+    original_block: Optional[str] = None
+    new_block: Optional[str] = None
     reason: str = ""
 
 
 class WhatIfResponse(BaseModel):
     feasible: bool
     run_id: str
+    scenario_id: Optional[str] = None
     plan_b: Optional[dict[str, Any]] = None
     changed_assignments: list[PlanDiff] = []
     added_assignments: list[AssignmentOut] = []
@@ -93,3 +107,34 @@ class WhatIfResponse(BaseModel):
     reason: list[str] = []
     execution_time_ms: int = 0
     objective_values: Optional[dict[str, float]] = None
+    solver_status: Optional[str] = None
+    summary: Optional[str] = None
+
+
+class ParetoResponse(BaseModel):
+    recommended_preset: str
+    summary: str
+    points: list[dict[str, Any]]
+
+
+class RobustnessResponse(BaseModel):
+    total_scenarios: int
+    feasible_scenarios_count: int
+    robustness_percentage: float
+    total_simulated_failures: int
+    failures_prevented_count: int
+    failure_prevention_rate: float
+    vulnerable_assets: list[str] = []
+    summary: str = ""
+    scenario_evaluations: list[dict[str, Any]] = []
+
+
+class PlanBResponse(BaseModel):
+    generated_at: str = ""
+    baseline_metrics: dict[str, Any] = {}
+    top_contingencies_count: int = 0
+    contingencies: list[dict[str, Any]] = []
+    total_contingencies: Optional[int] = None
+    scenarios: Optional[list[dict[str, Any]]] = None
+    summary: Optional[str] = None
+

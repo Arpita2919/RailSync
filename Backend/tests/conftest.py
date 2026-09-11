@@ -7,8 +7,19 @@ seeded with test corridor segments, and overrides FastAPI's get_db dependency.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Generator
+
+# Add Backend and workspace root (RailSync) to sys.path
+_backend_dir = Path(__file__).resolve().parent.parent
+_repo_root = _backend_dir.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+if str(_backend_dir) not in sys.path:
+    sys.path.insert(0, str(_backend_dir))
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,6 +31,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db.database import get_db
 from app.db.models import Base, Segment, MaintenanceTask, RiskPrediction
 from app.main import app
+
 
 
 # Compile Postgres JSONB as TEXT in SQLite for testing
