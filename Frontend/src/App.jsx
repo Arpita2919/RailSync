@@ -18,6 +18,7 @@ export default function App() {
         <Route path="overview" element={<OverviewDashboard />} />
         <Route path="digital-twin" element={<DigitalTwin />} />
         <Route path="planner" element={<BlockPlanner />} />
+        <Route path="timetable" element={<BlockPlanner />} />
         <Route path="segment-why" element={<SegmentWhy />} />
         <Route path="disruption" element={<WhatIfSandbox />} />
         <Route path="what-if" element={<Navigate to="/disruption" replace />} />
