@@ -67,6 +67,12 @@ export const api = {
 
   getSegmentRisk: (segmentId) => request(`/risk/${encodeURIComponent(segmentId)}`),
 
+  predictRisk: (segmentData) =>
+    request('/risk/predict', {
+      method: 'POST',
+      body: JSON.stringify(segmentData),
+    }),
+
   // Layer 2 / Negotiation
   negotiateTasks: (tasks) =>
     request('/negotiate', {
@@ -101,6 +107,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(feedbackData),
     }),
+
+  // RailGadi Live Timetable & Maintenance Blocks
+  getLiveTimetable: (days = 7) =>
+    request(`/timetable/live?days=${days}`),
+
+  getCorridorTrains: () =>
+    request('/timetable/trains'),
+
+  getMaintenanceBlocks: ({ days = 7, segment = null } = {}) => {
+    const query = new URLSearchParams({ days: String(days) });
+    if (segment) query.append('segment', segment);
+    return request(`/timetable/blocks?${query.toString()}`);
+  },
+
+  getTrainSchedule: (trainNumber) =>
+    request(`/timetable/schedule/${encodeURIComponent(trainNumber)}`),
 };
 
 export default api;

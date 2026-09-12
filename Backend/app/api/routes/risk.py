@@ -4,10 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.schemas.risk import RiskPredictionResponse, SegmentRiskSummary
+from app.integrations import layer1
+from app.schemas.risk import PredictRiskRequest, RiskPredictionResponse, SegmentRiskSummary
 from app.services import risk_service
 
 router = APIRouter(tags=["Risk"])
+
+
+@router.post("/risk/predict", response_model=RiskPredictionResponse)
+def predict_segment_risk(request: PredictRiskRequest):
+    return layer1.predict_risk(request.model_dump())
 
 
 @router.get("/risk/segments", response_model=list[SegmentRiskSummary])

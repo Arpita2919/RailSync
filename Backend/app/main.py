@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import feedback, health, negotiation, optimization, plans, risk, tasks
+from app.api.routes import feedback, health, negotiation, optimization, plans, risk, tasks, timetable
 from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
 
@@ -77,3 +77,16 @@ app.include_router(negotiation.router)
 app.include_router(optimization.router)
 app.include_router(plans.router)
 app.include_router(feedback.router)
+app.include_router(timetable.router)
+
+
+@app.get("/")
+def root():
+    return {
+        "status": "healthy",
+        "service": "RailSync 2.0 API Server",
+        "version": "2.0.0",
+        "docs_url": "/docs",
+        "health_check": "/api/v1/health",
+        "frontend_dashboard": "http://localhost:5173",
+    }
