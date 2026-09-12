@@ -51,17 +51,20 @@ def get_all_tasks(db: Session) -> list[TaskResponse]:
 def get_pending_tasks(db: Session) -> list[dict]:
     """Get pending tasks as dicts for Layer 2/3 consumption."""
     tasks = repo.get_tasks_by_status(db, "pending")
-    return [
-        {
-            "task_id": t.task_id,
-            "segment_id": t.segment_id,
-            "department": t.department,
-            "task_type": t.task_type,
-            "claimed_criticality": t.claimed_criticality,
-            "min_duration_hrs": t.min_duration_hrs,
-            "overdue": t.overdue,
-            "preferred_window_start": t.preferred_window_start,
-            "preferred_window_end": t.preferred_window_end,
-        }
-        for t in tasks
-    ]
+    return [_task_to_dict(t) for t in tasks]
+
+
+def _task_to_dict(t) -> dict:
+    """Convert a MaintenanceTask ORM object to a Layer 2/3-consumable dict."""
+    return {
+        "task_id": t.task_id,
+        "segment_id": t.segment_id,
+        "department": t.department,
+        "task_type": t.task_type,
+        "claimed_criticality": t.claimed_criticality,
+        "min_duration_hrs": t.min_duration_hrs,
+        "overdue": t.overdue,
+        "preferred_window_start": t.preferred_window_start,
+        "preferred_window_end": t.preferred_window_end,
+    }
+

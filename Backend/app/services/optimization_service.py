@@ -222,7 +222,12 @@ def run_pareto(db: Session) -> dict[str, Any]:
     """Computes Pareto frontier across policies directly via Layer 3 compute_pareto_frontier()."""
     tasks = task_service.get_pending_tasks(db)
     if not tasks:
-        raise ValueError("No pending tasks for Pareto frontier analysis.")
+        # Fall back to all tasks (scheduled, etc.) so pareto still works post-optimization
+        from app.db import repositories as _repo
+        all_tasks = _repo.get_all_tasks(db)
+        tasks = [task_service._task_to_dict(t) for t in all_tasks] if all_tasks else []
+    if not tasks:
+        raise ValueError("No tasks available for Pareto frontier analysis.")
     risk_data = risk_service.get_risk_data_map(db)
     timetable = generate_timetable(seed=42)
     result = layer3.run_pareto_frontier(tasks=tasks, risk_data=risk_data, timetable=timetable)
@@ -233,7 +238,12 @@ def run_robustness(db: Session, num_scenarios: int = 50) -> dict[str, Any]:
     """Evaluates N=50 failure scenarios directly via Layer 3 evaluate_scenario_robustness()."""
     tasks = task_service.get_pending_tasks(db)
     if not tasks:
-        raise ValueError("No pending tasks for robustness evaluation.")
+        # Fall back to all tasks so robustness still works post-optimization
+        from app.db import repositories as _repo
+        all_tasks = _repo.get_all_tasks(db)
+        tasks = [task_service._task_to_dict(t) for t in all_tasks] if all_tasks else []
+    if not tasks:
+        raise ValueError("No tasks available for robustness evaluation.")
     risk_data = risk_service.get_risk_data_map(db)
     timetable = generate_timetable(seed=42)
     result = layer3.run_scenario_robustness(
@@ -246,7 +256,12 @@ def run_plan_b(db: Session) -> dict[str, Any]:
     """Pre-computes top disruption fallback plans directly via Layer 3 generate_plan_b_contingencies()."""
     tasks = task_service.get_pending_tasks(db)
     if not tasks:
-        raise ValueError("No pending tasks for Plan B generation.")
+        # Fall back to all tasks so Plan B still works post-optimization
+        from app.db import repositories as _repo
+        all_tasks = _repo.get_all_tasks(db)
+        tasks = [task_service._task_to_dict(t) for t in all_tasks] if all_tasks else []
+    if not tasks:
+        raise ValueError("No tasks available for Plan B generation.")
     risk_data = risk_service.get_risk_data_map(db)
     timetable = generate_timetable(seed=42)
     result = layer3.run_plan_b_contingencies(tasks=tasks, risk_data=risk_data, timetable=timetable)

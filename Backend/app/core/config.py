@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from pydantic_settings import BaseSettings
+
+_BASE_DIR = Path(__file__).resolve().parent.parent.parent  # Backend dir
+_ROOT_DIR = _BASE_DIR.parent  # Workspace root
 
 
 class Settings(BaseSettings):
@@ -23,7 +27,16 @@ class Settings(BaseSettings):
     # "standalone" = built-in adapters, "external" = import real Layer 1/2/3 modules
     layer_mode: str = "standalone"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {
+        "env_file": [
+            str(_ROOT_DIR / ".env"),
+            str(_BASE_DIR / ".env"),
+            ".env",
+            "Backend/.env",
+        ],
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
     @property
     def cors_origin_list(self) -> list[str]:

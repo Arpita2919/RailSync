@@ -229,6 +229,18 @@ def run_whatif(db: Session, request: WhatIfRequest) -> WhatIfResponse:
                 )
                 plan_b_assignments.append(a_out)
 
+                # Ensure task exists in DB before saving assignment
+                repo.upsert_task(
+                    db,
+                    task_id=a_out.task_id,
+                    segment_id=a_out.segment_id,
+                    department=a_out.department,
+                    task_type="Emergency Disruption Task",
+                    claimed_criticality=5,
+                    min_duration_hrs=a_out.duration_hrs,
+                    status="scheduled",
+                )
+
                 repo.save_assignment(db, **{
                     "plan_id": plan_id,
                     "task_id": a_out.task_id,
