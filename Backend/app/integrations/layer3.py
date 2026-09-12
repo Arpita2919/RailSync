@@ -8,6 +8,15 @@ and fast re-optimization directly to the Optimization package.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+_backend_dir = Path(__file__).resolve().parent.parent.parent
+_workspace_root = _backend_dir.parent
+for p in [str(_workspace_root), str(_backend_dir)]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional, Dict, List

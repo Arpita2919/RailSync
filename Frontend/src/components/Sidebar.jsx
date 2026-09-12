@@ -1,6 +1,7 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useSidebar } from '../context/SidebarContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import railSyncLogo from '../assets/railsync-logo.png';
 
 const navItems = [
@@ -16,7 +17,14 @@ const navItems = [
 
 export default function Sidebar() {
   const { sidebarOpen, toggleSidebar } = useSidebar();
+  const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/', { replace: true });
+  };
 
   return (
     <aside
@@ -93,6 +101,29 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {/* User + Logout strip */}
+      <div className="px-3 py-2.5 border-t border-[#1a2942] shrink-0">
+        {user && (
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <div className="w-6 h-6 rounded-full bg-[#16253d] border border-[#394761] flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-[14px] text-[#b8c7e6]">person</span>
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="font-code-sm text-[10px] font-bold text-slate-300 truncate">{user.name}</span>
+              <span className="font-label-caps text-[9px] text-slate-500 uppercase tracking-wider truncate">{user.desk}</span>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded text-[12px] font-semibold text-slate-400 hover:text-white hover:bg-[#ba1a1a]/20 hover:border-[#ba1a1a]/40 border border-transparent transition-all duration-150"
+          title="Sign out of RailSync"
+        >
+          <span className="material-symbols-outlined text-[17px] shrink-0">logout</span>
+          <span>Logout</span>
+        </button>
+      </div>
 
       {/* Ticker & System Telemetry Footer */}
       <div className="p-3 bg-[#080f1d] border-t border-[#1a2942] text-[11px] font-code-sm shrink-0 flex flex-col gap-1.5">

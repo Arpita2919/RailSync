@@ -1,0 +1,245 @@
+/* ==========================================================================
+   RailSync Landing Page — Premium Animation & Design System
+   Dark Navy Railway Operations Aesthetic
+   Dashboard-matched color language: #080f1d / #0c172b / #16253d
+   ========================================================================== */
+
+:root {
+  --rs-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --rs-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --rs-dur-fast: 220ms;
+  --rs-dur-medium: 400ms;
+  --rs-dur-reveal: 650ms;
+  --rs-dur-slow: 900ms;
+}
+
+/* ── Scan line (hero track motif) ────────────────────────────────────────── */
+@keyframes scanLine {
+  from { left: -10%; }
+  to   { left: 110%; }
+}
+
+/* ── Page Load ───────────────────────────────────────────────────────────── */
+@keyframes pageReveal {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.rs-page-enter {
+  animation: pageReveal 500ms var(--rs-ease-out) forwards;
+}
+
+/* ── RAILSYNC Hero Wordmark Entrance ─────────────────────────────────────── */
+@keyframes wordmarkReveal {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.rs-wordmark-enter {
+  animation: wordmarkReveal 900ms var(--rs-ease-standard) 100ms both;
+}
+
+/* ── Staggered Hero Content Entrance ─────────────────────────────────────── */
+@keyframes contentReveal {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rs-content-1 { animation: contentReveal 700ms var(--rs-ease-standard) 0ms   both; }
+.rs-content-2 { animation: contentReveal 700ms var(--rs-ease-standard) 200ms both; }
+.rs-content-3 { animation: contentReveal 700ms var(--rs-ease-standard) 380ms both; }
+.rs-content-4 { animation: contentReveal 700ms var(--rs-ease-standard) 540ms both; }
+.rs-content-5 { animation: contentReveal 700ms var(--rs-ease-standard) 700ms both; }
+.rs-content-6 { animation: contentReveal 700ms var(--rs-ease-standard) 860ms both; }
+
+/* ── Scroll Reveal System ─────────────────────────────────────────────────── */
+.rs-reveal {
+  opacity: 0;
+  transform: translateY(20px);
+  transition:
+    opacity var(--rs-dur-reveal) var(--rs-ease-standard),
+    transform var(--rs-dur-reveal) var(--rs-ease-standard);
+  will-change: opacity, transform;
+}
+.rs-reveal.rs-revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+.rs-stagger-1 { transition-delay: 60ms; }
+.rs-stagger-2 { transition-delay: 130ms; }
+.rs-stagger-3 { transition-delay: 200ms; }
+.rs-stagger-4 { transition-delay: 270ms; }
+.rs-stagger-5 { transition-delay: 340ms; }
+.rs-stagger-6 { transition-delay: 410ms; }
+
+/* ── Floating Operational Cards (hero depth) ──────────────────────────────── */
+@keyframes floatUp {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-7px); }
+}
+@keyframes floatDown {
+  0%, 100% { transform: translateY(-4px); }
+  50%       { transform: translateY(4px); }
+}
+.rs-float-1 { animation: floatUp   5.5s ease-in-out infinite; }
+.rs-float-2 { animation: floatDown 6.5s ease-in-out infinite; animation-delay: 1.2s; }
+.rs-float-3 { animation: floatUp   7.0s ease-in-out infinite; animation-delay: 2.5s; }
+
+/* ── Status Live Dot ─────────────────────────────────────────────────────── */
+@keyframes statusPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.38; transform: scale(0.85); }
+}
+.rs-status-live    { animation: statusPulse 2.4s ease-in-out infinite; }
+.rs-status-warning { animation: statusPulse 1.7s ease-in-out infinite; }
+
+/* ── Navbar Entrance ─────────────────────────────────────────────────────── */
+@keyframes navbarDrop {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rs-navbar-enter {
+  animation: navbarDrop 500ms var(--rs-ease-standard) forwards;
+}
+
+.rs-nav-link {
+  position: relative;
+  transition: color var(--rs-dur-fast) ease;
+}
+.rs-nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  width: 0;
+  height: 1px;
+  background: rgba(184, 199, 230, 0.55);
+  transition:
+    width 220ms var(--rs-ease-standard),
+    left  220ms var(--rs-ease-standard);
+}
+.rs-nav-link:hover::after { width: 70%; left: 15%; }
+
+/* ── Primary Button ──────────────────────────────────────────────────────── */
+.rs-btn-primary {
+  background: #16253d;
+  color: #ffffff;
+  border: 1px solid #394761;
+  transition:
+    transform     280ms var(--rs-ease-standard),
+    background    250ms ease,
+    border-color  250ms ease,
+    box-shadow    250ms ease;
+}
+.rs-btn-primary:hover {
+  background: #1e3255;
+  border-color: #b8c7e6;
+  transform: translateY(-2px);
+  box-shadow: 0 0 22px rgba(184, 199, 230, 0.14), 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.rs-btn-primary:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* ── Secondary Button ────────────────────────────────────────────────────── */
+.rs-btn-secondary {
+  background: rgba(22, 37, 61, 0.5);
+  color: #b8c7e6;
+  border: 1px solid #394761;
+  transition:
+    transform     280ms var(--rs-ease-standard),
+    background    250ms ease,
+    border-color  250ms ease,
+    box-shadow    250ms ease,
+    color         250ms ease;
+}
+.rs-btn-secondary:hover {
+  background: rgba(30, 50, 85, 0.8);
+  border-color: #b8c7e6;
+  color: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.rs-btn-secondary:active { transform: translateY(0); }
+
+/* ── Arrow Micro-Interaction ─────────────────────────────────────────────── */
+.rs-arrow-icon {
+  display: inline-block;
+  transition: transform var(--rs-dur-fast) var(--rs-ease-standard);
+}
+.group:hover .rs-arrow-icon { transform: translateX(5px); }
+
+/* ── Card Hover (dark theme) ─────────────────────────────────────────────── */
+.rs-card {
+  transition:
+    transform    220ms var(--rs-ease-standard),
+    box-shadow   220ms var(--rs-ease-standard),
+    border-color 220ms ease;
+  will-change: transform;
+}
+.rs-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  border-color: #394761 !important;
+}
+
+/* ── Background Glow Orb ─────────────────────────────────────────────────── */
+@keyframes glowBreath {
+  0%, 100% { opacity: 0.07; transform: scale(1); }
+  50%       { opacity: 0.14; transform: scale(1.06); }
+}
+.rs-glow-orb { animation: glowBreath 9s ease-in-out infinite; }
+
+/* ── Pipeline Connector Dot ──────────────────────────────────────────────── */
+@keyframes pipeFlow {
+  0%   { left: -8px;              opacity: 0; }
+  8%   {                          opacity: 1; }
+  92%  {                          opacity: 1; }
+  100% { left: calc(100% + 8px); opacity: 0; }
+}
+.rs-pipe-dot {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  animation: pipeFlow 2.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ── SVG Track Elements ──────────────────────────────────────────────────── */
+@keyframes trackBreath {
+  0%, 100% { opacity: 0.18; }
+  50%       { opacity: 0.32; }
+}
+.rs-track-breath { animation: trackBreath 7s ease-in-out infinite; }
+
+/* ── Reduced Motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .rs-wordmark-enter,
+  .rs-content-1, .rs-content-2, .rs-content-3,
+  .rs-content-4, .rs-content-5, .rs-content-6,
+  .rs-navbar-enter,
+  .rs-float-1, .rs-float-2, .rs-float-3,
+  .rs-status-live, .rs-status-warning,
+  .rs-pipe-dot, .rs-glow-orb, .rs-track-breath {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .rs-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .rs-card,
+  .rs-btn-primary,
+  .rs-btn-secondary,
+  .rs-nav-link::after {
+    transition: none !important;
+  }
+}

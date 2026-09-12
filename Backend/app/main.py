@@ -6,6 +6,16 @@ Layer 4: API Orchestration + Persistence + Explanation + What-If + Feedback
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Ensure workspace root and Backend dir are in sys.path
+_backend_dir = Path(__file__).resolve().parent.parent
+_workspace_root = _backend_dir.parent
+for p in [str(_workspace_root), str(_backend_dir)]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
