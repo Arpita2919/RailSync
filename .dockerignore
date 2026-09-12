@@ -1,0 +1,14 @@
+.git
+.gitignore
+.pytest_cache
+.vscode
+.agents
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env.local
+.env.*.local
+Frontend/node_modules
+Frontend/dist
+Backend/.pytest_cache
