@@ -6,7 +6,7 @@ import railSyncLogo from '../assets/railsync-logo.png';
 const navItems = [
   { path: '/overview', alias: '/', label: 'Overview', icon: 'dashboard' },
   { path: '/digital-twin', label: 'Corridor Digital Twin', icon: 'conversion_path' },
-  { path: '/planner', label: 'Schedule & Block Planner', icon: 'calendar_month' },
+  { path: '/planner', alias: '/timetable', label: 'Train Timetable', icon: 'calendar_month' },
   { path: '/segment-why', label: "Segment 'Why?' Risk", icon: 'psychology' },
   { path: '/disruption', alias: '/what-if', label: 'What-If Sandbox', icon: 'tune' },
   { path: '/task-pool', label: 'Department Task Pool', icon: 'swap_horiz' },
