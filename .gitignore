@@ -49,3 +49,6 @@ Thumbs.db
 
 __pycache__/
 *.pyc
+
+# Local runtime SQLite databases
+Backend/*.db
