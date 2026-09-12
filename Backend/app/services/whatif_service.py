@@ -58,7 +58,8 @@ def run_whatif(db: Session, request: WhatIfRequest) -> WhatIfResponse:
             synth_task = _create_disruption_task(request)
             emergency_tasks.append(layer3.transform_task(synth_task, risk_data))
 
-        timetable = generate_timetable(seed=42)
+        # Real published timetable fixture (Delhi–Mumbai Rajdhani / Express corridor)
+        timetable = generate_timetable(seed=42, use_real_fixture=True)
         base_date = datetime(2026, 9, 15, 0, 0, 0)
         all_blocks = layer3.build_block_windows(timetable=timetable, horizon_days=7, base_date=base_date)
 

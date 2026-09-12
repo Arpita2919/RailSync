@@ -6,6 +6,7 @@ import railSyncLogo from '../assets/railsync-logo.png';
 
 const navItems = [
   { path: '/overview', alias: '/', label: 'Overview', icon: 'dashboard' },
+  { path: '/predict-and-optimize', label: 'Predict & Optimize', icon: 'auto_fix_high' },
   { path: '/digital-twin', label: 'Corridor Digital Twin', icon: 'conversion_path' },
   { path: '/planner', alias: '/timetable', label: 'Train Timetable', icon: 'calendar_month' },
   { path: '/segment-why', label: "Segment 'Why?' Risk", icon: 'psychology' },

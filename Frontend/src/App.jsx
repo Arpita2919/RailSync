@@ -12,6 +12,7 @@ import WhatIfSandbox from './pages/WhatIfSandbox.jsx';
 import TaskPool from './pages/TaskPool.jsx';
 import Optimization from './pages/Optimization.jsx';
 import Feedback from './pages/Feedback.jsx';
+import PredictAndOptimize from './pages/PredictAndOptimize.jsx';
 
 /**
  * AuthGuard — layout route that checks auth then renders <Outlet />.
@@ -36,6 +37,10 @@ export default function App() {
       <Route element={<AuthGuard />}>
         {/* Overview */}
         <Route path="overview" element={<OverviewDashboard />} />
+
+        {/* Predict & Optimize */}
+        <Route path="predict-and-optimize" element={<PredictAndOptimize />} />
+        <Route path="predict" element={<PredictAndOptimize />} />
 
         {/* Digital Twin */}
         <Route path="corridor-digital-twin" element={<DigitalTwin />} />

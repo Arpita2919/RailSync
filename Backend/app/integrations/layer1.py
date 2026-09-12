@@ -7,10 +7,17 @@ and feature importances directly from trained ML artifacts.
 
 from __future__ import annotations
 
+import csv
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import pandas as pd
+
+try:
+    import pandas as pd
+    _HAS_PANDAS = True
+except ImportError:
+    pd = None
+    _HAS_PANDAS = False
 
 from app.core.logging import get_logger
 
@@ -51,10 +58,17 @@ def _ensure_trained_data() -> None:
         # 1. Load trained failure forecasts
         fc_file = _LAYER1_DIR / "final_failure_forecasts.csv"
         if fc_file.exists():
-            df_fc = pd.read_csv(fc_file)
-            for _, row in df_fc.iterrows():
+            if _HAS_PANDAS and pd is not None:
+                df_fc = pd.read_csv(fc_file)
+                rows = [row.to_dict() for _, row in df_fc.iterrows()]
+            else:
+                with open(fc_file, "r", encoding="utf-8") as f:
+                    rows = list(csv.DictReader(f))
+
+            for row in rows:
                 sid = str(row["segment_id"]).strip()
-                risk_val = float(row.get("failure_probability_30d", row.get("risk_score", 0.0) / 100.0))
+                raw_risk = row.get("failure_probability_30d") or row.get("risk_score") or 0.0
+                risk_val = float(raw_risk) if float(raw_risk) <= 1.0 else float(raw_risk) / 100.0
                 age = float(row.get("age_years", 20.0))
                 exp_down = round(float(risk_val * 4.5), 3)
                 prev_dur = round(float(2.0 + risk_val * 2.5), 2)
@@ -80,36 +94,89 @@ def _ensure_trained_data() -> None:
         # 2. Load trained empirical survival curves
         sc_file = _LAYER1_DIR / "segment_survival_curves.csv"
         if sc_file.exists():
-            df_sc = pd.read_csv(sc_file)
-            for sid, group in df_sc.groupby("segment_id"):
-                sid_str = str(sid).strip()
-                curve_pts = [
-                    {
+            if _HAS_PANDAS and pd is not None:
+                df_sc = pd.read_csv(sc_file)
+                for sid, group in df_sc.groupby("segment_id"):
+                    sid_str = str(sid).strip()
+                    curve_pts = [
+                        {
+                            "day": int(r["forecast_day"]),
+                            "survival_probability": round(float(r["survival_probability"]), 6),
+                        }
+                        for _, r in group.sort_values("forecast_day").iterrows()
+                    ]
+                    _TRAINED_SURVIVAL_CURVES[sid_str] = curve_pts
+            else:
+                with open(sc_file, "r", encoding="utf-8") as f:
+                    sc_rows = list(csv.DictReader(f))
+                by_sid: Dict[str, List[Dict[str, Any]]] = {}
+                for r in sc_rows:
+                    sid_str = str(r["segment_id"]).strip()
+                    by_sid.setdefault(sid_str, []).append({
                         "day": int(r["forecast_day"]),
                         "survival_probability": round(float(r["survival_probability"]), 6),
-                    }
-                    for _, r in group.sort_values("forecast_day").iterrows()
-                ]
-                _TRAINED_SURVIVAL_CURVES[sid_str] = curve_pts
+                    })
+                for sid_str, pts in by_sid.items():
+                    _TRAINED_SURVIVAL_CURVES[sid_str] = sorted(pts, key=lambda x: x["day"])
             log.info("Loaded %d trained segment survival curves from %s", len(_TRAINED_SURVIVAL_CURVES), sc_file.name)
 
         # 3. Load feature importances
         fi_file = _LAYER1_DIR / "feature_importance.csv"
         if fi_file.exists():
-            df_fi = pd.read_csv(fi_file)
+            if _HAS_PANDAS and pd is not None:
+                df_fi = pd.read_csv(fi_file)
+                fi_rows = [r.to_dict() for _, r in df_fi.head(6).iterrows()]
+            else:
+                with open(fi_file, "r", encoding="utf-8") as f:
+                    fi_rows = list(csv.DictReader(f))[:6]
+
             _FEATURE_CONTRIBUTIONS = [
                 {
                     "name": str(r["feature"]),
                     "value": round(float(r["importance"]), 4),
                     "contribution": round(float(r["importance"]), 4),
                 }
-                for _, r in df_fi.head(6).iterrows()
+                for r in fi_rows
             ]
 
         _LOADED = True
     except Exception as exc:
         log.error("Failed to load trained Layer 1 artifacts: %s", exc, exc_info=True)
         _LOADED = True
+
+
+def _calculate_cold_start_risk(segment: dict[str, Any]) -> float:
+    """Calculates cold-start 30-day failure risk based on trained Layer 1 Weibull asset-type priors."""
+    asset = str(segment.get("asset_type", "Track")).strip()
+    age = float(segment.get("age_years", 10.0))
+    freight_class = str(segment.get("freight_density_class", "medium")).lower()
+    monsoon = str(segment.get("monsoon_exposure", "medium")).lower()
+
+    # Asset base 30-day failure rate from trained Weibull priors
+    asset_upper = asset.upper()
+    if asset_upper in ("TRACK",):
+        base_rate = 0.0012
+    elif asset_upper in ("S&T", "SIG", "SIGNAL", "TELE"):
+        base_rate = 0.0009
+    elif asset_upper in ("OHE", "TRACTION/OHE", "TRACTION"):
+        base_rate = 0.0008
+    elif asset_upper in ("BRIDGE",):
+        base_rate = 0.0005
+    else:
+        base_rate = 0.0010
+
+    # Weibull age acceleration factor
+    design_life = 40.0 if asset_upper in ("BRIDGE", "TRACTION/OHE", "OHE") else 30.0
+    age_factor = 1.0 + (max(0.0, age - 3.0) / design_life) ** 2.2
+
+    # Freight density multiplier
+    freight_mult = {"very_high": 1.4, "high": 1.2, "medium": 1.0, "low": 0.85}.get(freight_class, 1.0)
+
+    # Monsoon exposure multiplier
+    monsoon_mult = {"high": 1.25, "medium": 1.0, "low": 0.9}.get(monsoon, 1.0)
+
+    risk_val = base_rate * age_factor * freight_mult * monsoon_mult
+    return round(min(0.95, max(0.0005, risk_val)), 6)
 
 
 def predict_risk(segment: dict[str, Any]) -> dict[str, Any]:
@@ -129,15 +196,19 @@ def predict_risk(segment: dict[str, Any]) -> dict[str, Any]:
         item["model_version"] = "trained-layer1-v1.0"
         return item
 
-    # 2. Cold-start fallback for new/unseen corridor segments
-    age = float(segment.get("age_years", 10.0))
-    risk_val = round(min(0.99, max(0.01, 0.05 + (age / 50.0) * 0.3)), 4)
-    exp_down = round(risk_val * 3.5, 2)
-    prev_dur = round(2.0 + risk_val * 2.0, 2)
-    overrun_p = round(0.1 + risk_val * 0.2, 4)
+    # 2. Cold-start fallback for new/unseen corridor segments using trained asset-type priors
+    risk_val = _calculate_cold_start_risk(segment)
+    exp_down = round(risk_val * 4.5, 3)
+    prev_dur = round(2.0 + risk_val * 2.5, 2)
+    overrun_p = round(min(0.95, max(0.05, 0.08 + risk_val * 0.35)), 4)
 
+    # Discrete daily survival curve: S(t) = (1 - h)^t where h is the daily hazard
+    daily_hazard = 1.0 - (1.0 - risk_val) ** (1.0 / 30.0)
     default_curve = [
-        {"day": d, "survival_probability": round(max(0.01, 1.0 - (d * (risk_val / 30.0))), 4)}
+        {
+            "day": d,
+            "survival_probability": round(max(0.0, (1.0 - daily_hazard) ** d), 6),
+        }
         for d in range(1, 31)
     ]
 

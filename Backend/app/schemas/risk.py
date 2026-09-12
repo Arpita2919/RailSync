@@ -48,3 +48,14 @@ class SegmentRiskSummary(BaseModel):
     confidence: str
     overrun_probability: Optional[float] = None
     cold_start_fallback: Optional[bool] = None
+
+
+class PredictRiskRequest(BaseModel):
+    segment_id: Optional[str] = "SEG-NEW-001"
+    division: Optional[str] = "Delhi"
+    asset_type: Optional[str] = "Track"
+    age_years: Optional[float] = 25.0
+    installation_year: Optional[int] = 2001
+    length_km: Optional[float] = 12.5
+    monsoon_exposure: Optional[str] = "medium"
+    freight_density_class: Optional[str] = "high"
