@@ -1,104 +1,106 @@
 /**
- * RailSync 2.0 — Central API Service
- * Connects Frontend to Backend (FastAPI Layer 4)
- * Real data flows: L0 (Timetable) → L1 (Risk ML) → L2 (Negotiation) → L3 (CP-SAT Optimization) → L4 (API)
+ * RailSync 2.0 — Unified API Client
+ * Connects Frontend directly to FastAPI Backend on http://127.0.0.1:8000
+ * Orchestrates Layer 0 (Master Data), Layer 1 (Risk/ML), Layer 2 (Negotiation),
+ * and Layer 3 (CP-SAT Block Optimization).
  */
 
-import axios from 'axios';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
-const API = axios.create({
-  baseURL: '/api',
-  timeout: 30000,
-  headers: { 'Content-Type': 'application/json' },
-});
-
-// ─── Health ─────────────────────────────────────────
-export const getHealth = () => API.get('/health').then(r => r.data);
-
-// ─── Tasks (Layer 0 seed data) ──────────────────────
-export const getTasks = () => API.get('/tasks').then(r => r.data);
-export const ingestTask = (data) => API.post('/ingest/tasks', data).then(r => r.data);
-
-// ─── Risk Predictions (Layer 1 — ML Model) ─────────
-export const getRiskSegments = (params = {}) =>
-  API.get('/risk/segments', { params }).then(r => r.data);
-
-export const getSegmentRisk = (segmentId) =>
-  API.get(`/risk/${segmentId}`).then(r => r.data);
-
-// ─── Negotiation (Layer 2) ──────────────────────────
-export const runNegotiation = () => API.post('/negotiate').then(r => r.data);
-
-// ─── Optimization (Layer 3 — CP-SAT Solver) ────────
-export const runOptimization = (policy = 'balanced', horizon = 'both', objectiveWeights = null) =>
-  API.post('/optimize', {
-    policy,
-    horizon,
-    objective_weights: objectiveWeights,
-  }).then(r => r.data);
-
-// ─── What-If Simulation (Layer 3) ───────────────────
-export const runWhatIf = ({ type, segment_id, severity = 'moderate', time = null, description = null }) =>
-  API.post('/optimize/whatif', {
-    type,
-    segment_id,
-    severity,
-    time,
-    description,
-  }).then(r => r.data);
-
-// ─── Plans (Layer 4 — Persisted) ────────────────────
-export const getCurrentPlan = () => API.get('/plan/current').then(r => r.data);
-export const getPlanById = (planId) => API.get(`/plan/${planId}`).then(r => r.data);
-
-// ─── Feedback (Layer 4 — Post-execution) ────────────
-export const submitFeedback = (data) => API.post('/feedback/block', data).then(r => r.data);
-export const getFeedbackMetrics = () => API.get('/feedback/metrics').then(r => r.data);
-
-// ─── Utility Helpers ────────────────────────────────
-export const formatDuration = (hrs) => {
-  if (!hrs) return '—';
-  const h = Math.floor(hrs);
-  const m = Math.round((hrs - h) * 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-};
-
-export const formatDateTime = (isoStr) => {
-  if (!isoStr) return '—';
-  const d = new Date(isoStr);
-  return d.toLocaleString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  });
-};
-
-export const formatTime = (isoStr) => {
-  if (!isoStr) return '—';
-  const d = new Date(isoStr);
-  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
-};
-
-export const riskLevel = (risk30d) => {
-  if (risk30d >= 0.7) return { label: 'CRITICAL', color: 'error' };
-  if (risk30d >= 0.4) return { label: 'HIGH', color: 'secondary' };
-  if (risk30d >= 0.2) return { label: 'MODERATE', color: 'on-surface-variant' };
-  return { label: 'LOW', color: 'on-tertiary-container' };
-};
-
-export const criticalityLabel = (lvl) => {
-  const map = { 1: 'CRITICAL', 2: 'URGENT', 3: 'HIGH', 4: 'ROUTINE', 5: 'LOW' };
-  return map[lvl] || `LVL ${lvl}`;
-};
-
-export const deptLabel = (dept) => {
-  const map = {
-    TRACK: 'Engineering (P-Way)',
-    OHE: 'Traction (TRD/OHE)',
-    SIG: 'Signalling (S&T)',
-    TELE: 'Telecom',
-    BRIDGE: 'Bridge (BR)',
+async function request(endpoint, options = {}) {
+  const url = `${API_BASE_URL}${endpoint}`;
+  const config = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
   };
-  return map[dept] || dept;
+
+  try {
+    const response = await fetch(url, config);
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { detail: errorText };
+      }
+      throw new Error(errorData.detail || `Request failed with status ${response.status}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error(`API Error [${options.method || 'GET'} ${endpoint}]:`, error);
+    throw error;
+  }
+}
+
+export const api = {
+  // System Health
+  getHealth: () => request('/health'),
+
+  // Layer 0 / Tasks
+  getTasks: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.status) query.append('status', params.status);
+    if (params.department) query.append('department', params.department);
+    if (params.segment_id) query.append('segment_id', params.segment_id);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return request(`/tasks${qs}`);
+  },
+
+  ingestTask: (taskData) =>
+    request('/ingest/tasks', {
+      method: 'POST',
+      body: JSON.stringify(taskData),
+    }),
+
+  // Layer 1 / Risk & ML Predictions
+  getRiskSegments: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.min_risk) query.append('min_risk', params.min_risk);
+    if (params.division) query.append('division', params.division);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return request(`/risk/segments${qs}`);
+  },
+
+  getSegmentRisk: (segmentId) => request(`/risk/${encodeURIComponent(segmentId)}`),
+
+  // Layer 2 / Negotiation
+  negotiateTasks: (tasks) =>
+    request('/negotiate', {
+      method: 'POST',
+      body: JSON.stringify(tasks),
+    }),
+
+  // Layer 3 / CP-SAT Optimization
+  runOptimization: ({ policy = 'balanced', horizon = 'weekly', objective_weights = null }) =>
+    request('/optimize', {
+      method: 'POST',
+      body: JSON.stringify({ policy, horizon, objective_weights }),
+    }),
+
+  runWhatIf: (data) =>
+    request('/optimize/whatif', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // Plans & Assignments
+  getCurrentPlan: (planType = 'weekly') =>
+    request(`/plan/current?plan_type=${encodeURIComponent(planType)}`),
+
+  getPlanById: (planId) => request(`/plan/${encodeURIComponent(planId)}`),
+
+  // Feedback & Metrics
+  getFeedbackMetrics: () => request('/feedback/metrics'),
+
+  submitFeedback: (feedbackData) =>
+    request('/feedback/block', {
+      method: 'POST',
+      body: JSON.stringify(feedbackData),
+    }),
 };
 
-export default API;
+export default api;
