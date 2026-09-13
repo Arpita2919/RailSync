@@ -5,7 +5,7 @@
  * and Layer 3 (CP-SAT Block Optimization).
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://railsync-0m2l.onrender.com';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -123,14 +123,6 @@ export const api = {
 
   getTrainSchedule: (trainNumber) =>
     request(`/timetable/schedule/${encodeURIComponent(trainNumber)}`),
-
-  // Multi-Division & Railway Corridor Network
-  getDivisions: () => request('/timetable/divisions'),
-
-  getCorridors: () => request('/timetable/corridors'),
-
-  getDivisionTimetable: (division, days = 7) =>
-    request(`/timetable/divisions/${encodeURIComponent(division)}/timetable?days=${days}`),
 };
 
 export default api;

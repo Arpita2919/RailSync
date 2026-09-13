@@ -1,0 +1,49 @@
+# RailSync 2.0 — Render Blueprint (Infrastructure as Code)
+# Deploys the FastAPI backend as a Render Web Service.
+# Usage: Connect this repo to Render and it auto-detects this file.
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: railsync-api
+    runtime: python
+    region: singapore  # closest to India
+    plan: free         # upgrade to "starter" or "standard" for production
+
+    # Build & Start
+    rootDir: Backend
+    buildCommand: |
+      pip install --upgrade pip &&
+      pip install -r requirements.txt &&
+      python -m alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
+    # Health Check
+    healthCheckPath: /
+
+    # Environment Variables — set actual values in Render Dashboard
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+      - key: SUPABASE_DATABASE_URL
+        sync: false  # set manually in Render Dashboard
+
+      - key: SUPABASE_URL
+        sync: false
+
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+      - key: CORS_ORIGINS
+        value: "https://railsync.vercel.app,https://railsync-api.onrender.com"
+        # ↑ Update with your actual Vercel frontend URL after deploying
+
+      - key: LOG_LEVEL
+        value: INFO
+
+      - key: LAYER_MODE
+        value: standalone
+
+      - key: API_KEY
+        sync: false

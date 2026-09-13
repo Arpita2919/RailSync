@@ -35,8 +35,6 @@ export default function BlockPlanner() {
   const [timetableError, setTimetableError] = useState(null);
   const [segmentFilter, setSegmentFilter] = useState('ALL');
   const [blockTypeFilter, setBlockTypeFilter] = useState('ALL');
-  const [divisionFilter, setDivisionFilter] = useState('ALL');
-  const [divisionsList, setDivisionsList] = useState([]);
 
   const loadPlan = async (planHorizon = horizon) => {
     try {
@@ -51,27 +49,11 @@ export default function BlockPlanner() {
     }
   };
 
-  const loadDivisions = async () => {
-    try {
-      const data = await api.getDivisions();
-      if (data && data.divisions) {
-        setDivisionsList(data.divisions);
-      }
-    } catch (err) {
-      console.error('Failed to load divisions:', err);
-    }
-  };
-
-  const fetchLiveTimetable = useCallback(async (div = divisionFilter) => {
+  const fetchLiveTimetable = useCallback(async () => {
     try {
       setTimetableLoading(true);
       setTimetableError(null);
-      let data;
-      if (div && div !== 'ALL') {
-        data = await api.getDivisionTimetable(div, 7);
-      } else {
-        data = await api.getLiveTimetable(7);
-      }
+      const data = await api.getLiveTimetable(7);
       setLiveTimetable(data);
     } catch (err) {
       console.error('Failed to fetch live timetable:', err);
@@ -79,12 +61,11 @@ export default function BlockPlanner() {
     } finally {
       setTimetableLoading(false);
     }
-  }, [divisionFilter]);
+  }, []);
 
   useEffect(() => {
     loadPlan(horizon);
-    loadDivisions();
-    fetchLiveTimetable(divisionFilter);
+    fetchLiveTimetable();
   }, [horizon]);
 
   const handleReoptimize = async (policy = 'balanced') => {
@@ -249,46 +230,17 @@ export default function BlockPlanner() {
         {/* ═══ TAB 1: LIVE TRAIN TIMETABLE ═══ */}
         {activeTab === 'timetable' && (
           <section className="px-gutter pt-space-md flex flex-col gap-space-md">
-            <div className="flex items-center justify-between flex-wrap gap-space-xs">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-space-xs">
                 <span className="material-symbols-outlined text-primary text-[20px]">train</span>
                 <h2 className="font-headline-sm text-headline-sm text-on-surface font-bold">
                   Live Corridor Train Schedule
                 </h2>
               </div>
-              <div className="flex items-center gap-space-xs flex-wrap">
-                {/* Division Selector */}
-                <div className="flex items-center gap-1.5 bg-surface-container-highest px-2 py-1 rounded border border-outline-variant">
-                  <span className="material-symbols-outlined text-[15px] text-primary">domain</span>
-                  <span className="font-label-caps text-label-caps text-on-surface-variant uppercase font-bold">Division:</span>
-                  <select
-                    value={divisionFilter}
-                    onChange={(e) => {
-                      const div = e.target.value;
-                      setDivisionFilter(div);
-                      fetchLiveTimetable(div);
-                    }}
-                    className="bg-transparent text-primary font-code-sm text-code-sm font-bold focus:outline-none cursor-pointer"
-                  >
-                    <option value="ALL" className="bg-[#1e293b] text-white">ALL DIVISIONS (Full Trunk)</option>
-                    {(divisionsList.length > 0 ? divisionsList : [
-                      { division: 'Delhi' },
-                      { division: 'Agra' },
-                      { division: 'Kota' },
-                      { division: 'Ratlam' },
-                      { division: 'Vadodara' },
-                      { division: 'Mumbai' },
-                    ]).map((d) => (
-                      <option key={d.division} value={d.division} className="bg-[#1e293b] text-white">
-                        {d.division} Division {d.stations_count ? `(${d.stations_count} Stns)` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <span className="font-code-sm text-code-sm text-on-surface-variant">
-                  <strong className="text-primary">{liveTimetable?.trains?.length || 0}</strong> trains tracked
-                </span>
-              </div>
+              <span className="font-code-sm text-code-sm text-on-surface-variant">
+                Delhi–Mumbai Rajdhani Corridor •{' '}
+                <strong className="text-primary">{liveTimetable?.trains?.length || 0}</strong> trains tracked
+              </span>
             </div>
 
             {timetableError && (
@@ -384,31 +336,7 @@ export default function BlockPlanner() {
                   Optimized Maintenance Block Schedule
                 </h2>
               </div>
-              <div className="flex items-center gap-space-xs flex-wrap">
-                {/* Division Filter */}
-                <select
-                  value={divisionFilter}
-                  onChange={(e) => {
-                    const div = e.target.value;
-                    setDivisionFilter(div);
-                    fetchLiveTimetable(div);
-                  }}
-                  className="bg-surface-container-highest text-primary font-bold px-space-sm py-1 rounded font-code-sm text-code-sm border border-outline-variant focus:outline-none cursor-pointer"
-                >
-                  <option value="ALL">All Divisions</option>
-                  {(divisionsList.length > 0 ? divisionsList : [
-                    { division: 'Delhi' },
-                    { division: 'Agra' },
-                    { division: 'Kota' },
-                    { division: 'Ratlam' },
-                    { division: 'Vadodara' },
-                    { division: 'Mumbai' },
-                  ]).map((d) => (
-                    <option key={d.division} value={d.division}>
-                      {d.division} Division
-                    </option>
-                  ))}
-                </select>
+              <div className="flex items-center gap-space-xs">
                 {/* Segment Filter */}
                 <select
                   value={segmentFilter}
