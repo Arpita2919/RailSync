@@ -9,23 +9,28 @@ export default function DigitalTwin() {
   const [currentPlan, setCurrentPlan] = useState(null);
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [divisionsList, setDivisionsList] = useState([]);
+  const [divisionFilter, setDivisionFilter] = useState('ALL');
 
   useEffect(() => {
     async function loadData() {
       try {
         setLoading(true);
-        const [segsData, planData] = await Promise.allSettled([
+        const [segsData, planData, divData] = await Promise.allSettled([
           api.getRiskSegments(),
           api.getCurrentPlan('weekly'),
+          api.getDivisions(),
         ]);
         if (segsData.status === 'fulfilled' && segsData.value) {
           setSegments(segsData.value);
-          // Default to top risk segment
           const sorted = [...segsData.value].sort((a, b) => b.risk_30d - a.risk_30d);
           setSelectedSegment(sorted[0]);
         }
         if (planData.status === 'fulfilled') {
           setCurrentPlan(planData.value);
+        }
+        if (divData.status === 'fulfilled' && divData.value?.divisions) {
+          setDivisionsList(divData.value.divisions);
         }
       } catch (err) {
         console.error('Failed to load digital twin data:', err);
@@ -49,6 +54,15 @@ export default function DigitalTwin() {
   const isCrit = (selectedSegment?.risk_30d || 0) >= 0.70;
   const isMed = (selectedSegment?.risk_30d || 0) >= 0.30 && (selectedSegment?.risk_30d || 0) < 0.70;
 
+  const filteredSegments = segments.filter((s) => {
+    if (divisionFilter === 'ALL') return true;
+    return (s.division || '').toLowerCase() === divisionFilter.toLowerCase();
+  });
+
+  const activeDivisionsNames = divisionsList.length > 0 
+    ? divisionsList.map((d) => d.division).join(', ')
+    : 'Delhi, Agra, Kota, Ratlam, Vadodara, Mumbai';
+
   return (
     <main className="flex flex-col relative w-full">
       <div className="flex flex-col w-full gap-space-md p-gutter">
@@ -65,14 +79,14 @@ export default function DigitalTwin() {
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-space-xs">
                   <span className="font-headline-sm text-headline-sm text-on-surface truncate">
-                    NORTHERN &amp; NORTH CENTRAL CORRIDOR NETWORK
+                    INDIAN RAILWAYS MULTI-DIVISION DIGITAL TWIN
                   </span>
                   <span className="font-label-caps text-label-caps bg-secondary-container text-on-secondary-container px-1 py-0.5 rounded uppercase">
-                    50 ASSETS SYNCHRONIZED
+                    {segments.length} ASSETS SYNCHRONIZED
                   </span>
                 </div>
                 <span className="font-code-sm text-code-sm text-secondary">
-                  Divisions: Agra &amp; Delhi • Real-Time Digital Twin Telemetry &amp; Block Twin
+                  Divisions: {activeDivisionsNames} • Real-Time Digital Twin Telemetry &amp; Block Twin
                 </span>
               </div>
             </div>
@@ -130,17 +144,38 @@ export default function DigitalTwin() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-space-md">
           {/* Left: 50 Real Corridor Segments Grid */}
           <div className="lg:col-span-2 bg-surface-container-lowest p-space-md rounded-lg shadow-sm flex flex-col gap-space-sm">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <span className="font-headline-sm text-headline-sm text-on-surface">
-                Railway Physical Network Topology ({segments.length} Segments)
+                Railway Physical Network Topology ({filteredSegments.length} Segments)
               </span>
-              <span className="font-code-sm text-code-sm text-on-surface-variant">
-                Click any segment to inspect
-              </span>
+              <div className="flex items-center gap-2">
+                <select
+                  value={divisionFilter}
+                  onChange={(e) => setDivisionFilter(e.target.value)}
+                  className="bg-surface-container-highest text-primary font-bold px-2 py-1 rounded font-code-sm text-code-sm border border-outline-variant focus:outline-none cursor-pointer"
+                >
+                  <option value="ALL">All Divisions</option>
+                  {(divisionsList.length > 0 ? divisionsList : [
+                    { division: 'Delhi' },
+                    { division: 'Agra' },
+                    { division: 'Kota' },
+                    { division: 'Ratlam' },
+                    { division: 'Vadodara' },
+                    { division: 'Mumbai' },
+                  ]).map((d) => (
+                    <option key={d.division} value={d.division}>
+                      {d.division} Division
+                    </option>
+                  ))}
+                </select>
+                <span className="font-code-sm text-code-sm text-on-surface-variant hidden sm:inline">
+                  Click any segment to inspect
+                </span>
+              </div>
             </div>
 
             <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-2 max-h-[500px] overflow-y-auto p-1">
-              {segments.map((seg) => {
+              {filteredSegments.map((seg) => {
                 const segCrit = seg.risk_30d >= 0.70;
                 const segMed = seg.risk_30d >= 0.30 && seg.risk_30d < 0.70;
                 const isSelected = selectedSegment?.segment_id === seg.segment_id;

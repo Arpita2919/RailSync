@@ -123,6 +123,14 @@ export const api = {
 
   getTrainSchedule: (trainNumber) =>
     request(`/timetable/schedule/${encodeURIComponent(trainNumber)}`),
+
+  // Multi-Division & Railway Corridor Network
+  getDivisions: () => request('/timetable/divisions'),
+
+  getCorridors: () => request('/timetable/corridors'),
+
+  getDivisionTimetable: (division, days = 7) =>
+    request(`/timetable/divisions/${encodeURIComponent(division)}/timetable?days=${days}`),
 };
 
 export default api;

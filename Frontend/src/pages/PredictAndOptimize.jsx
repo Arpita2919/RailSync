@@ -23,6 +23,14 @@ export default function PredictAndOptimize() {
   const [pipelineResults, setPipelineResults] = useState(null);
   const [error, setError] = useState(null);
   const [storedTasks, setStoredTasks] = useState([]);
+  const [divisionsList, setDivisionsList] = useState([
+    { division: 'Delhi' },
+    { division: 'Agra' },
+    { division: 'Kota' },
+    { division: 'Ratlam' },
+    { division: 'Vadodara' },
+    { division: 'Mumbai' },
+  ]);
 
   const loadStoredTasks = async () => {
     try {
@@ -33,8 +41,20 @@ export default function PredictAndOptimize() {
     }
   };
 
+  const loadDivisions = async () => {
+    try {
+      const data = await api.getDivisions();
+      if (data && data.divisions && data.divisions.length > 0) {
+        setDivisionsList(data.divisions);
+      }
+    } catch (err) {
+      console.error('Failed to load divisions:', err);
+    }
+  };
+
   useEffect(() => {
     loadStoredTasks();
+    loadDivisions();
   }, []);
 
   const handleChange = (e) => {
@@ -209,33 +229,15 @@ export default function PredictAndOptimize() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       {/* Header Banner */}
-      <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl p-6 shadow-lg text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-[#38bdf8] font-mono text-xs uppercase font-bold tracking-wider mb-1">
-            <span className="material-symbols-outlined text-[18px]">auto_fix_high</span>
-            End-to-End AI Pipeline
-          </div>
-          <h1 className="text-2xl font-bold font-headline tracking-tight">Predict &amp; Optimize Defect</h1>
-          <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-            Report new asset defects with physical attributes (<code className="text-amber-400 font-mono text-xs">age_years</code>, <code className="text-amber-400 font-mono text-xs">installation_year</code>, <code className="text-amber-400 font-mono text-xs">length_km</code>, <code className="text-amber-400 font-mono text-xs">monsoon_exposure</code>, <code className="text-amber-400 font-mono text-xs">asset_type</code>, <code className="text-amber-400 font-mono text-xs">division</code>). The system executes Layer 1 ML Risk Prediction $\rightarrow$ Layer 2 Negotiation $\rightarrow$ Layer 3 CP-SAT Timetable Possession Allocation and persists all data for audit.
-          </p>
+      <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl p-6 shadow-lg text-white">
+        <div className="flex items-center gap-2 text-[#38bdf8] font-mono text-xs uppercase font-bold tracking-wider mb-1">
+          <span className="material-symbols-outlined text-[18px]">auto_fix_high</span>
+          AI-Powered Maintenance Planning
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            onClick={() => loadPreset('critical_track')}
-            className="px-3 py-1.5 rounded-lg bg-red-950/60 border border-red-800/50 text-red-200 text-xs font-semibold hover:bg-red-900/60 transition-all"
-          >
-            Preset: 42-Yr Track Defect
-          </button>
-          <button
-            type="button"
-            onClick={() => loadPreset('ohe_catenary')}
-            className="px-3 py-1.5 rounded-lg bg-sky-950/60 border border-sky-800/50 text-sky-200 text-xs font-semibold hover:bg-sky-900/60 transition-all"
-          >
-            Preset: OHE Repair
-          </button>
-        </div>
+        <h1 className="text-2xl font-bold font-headline tracking-tight">Predict &amp; Optimize Defect</h1>
+        <p className="text-slate-400 text-sm mt-1 max-w-3xl">
+          Report a new asset defect and let RailSync assess its risk, negotiate maintenance priorities, and find the best available maintenance window.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -276,12 +278,11 @@ export default function PredictAndOptimize() {
                   onChange={handleChange}
                   className="w-full bg-[#1e293b] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
                 >
-                  <option value="Delhi">Delhi</option>
-                  <option value="Agra">Agra</option>
-                  <option value="Kota">Kota</option>
-                  <option value="Ratlam">Ratlam</option>
-                  <option value="Vadodara">Vadodara</option>
-                  <option value="Mumbai">Mumbai</option>
+                  {divisionsList.map((d) => (
+                    <option key={d.division} value={d.division}>
+                      {d.division}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -491,17 +492,6 @@ export default function PredictAndOptimize() {
             <div className="bg-red-950/60 border border-red-800 text-red-200 p-4 rounded-xl text-xs flex items-center gap-2">
               <span className="material-symbols-outlined text-red-400">error</span>
               <span>{error}</span>
-            </div>
-          )}
-
-          {/* Idle Placeholder */}
-          {!pipelineResults && !loading && (
-            <div className="bg-[#0f172a]/60 border border-[#1e293b] border-dashed rounded-xl p-12 text-center text-slate-400 space-y-3">
-              <span className="material-symbols-outlined text-4xl text-slate-600">psychology_alt</span>
-              <h3 className="text-base font-bold text-slate-300">Ready to Execute Pipeline</h3>
-              <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Specify Task ID and defect attributes on the left and click "Predict Risk &amp; Run Multi-Layer Optimization" to evaluate failure probability, negotiation claims, and track possession slots.
-              </p>
             </div>
           )}
 

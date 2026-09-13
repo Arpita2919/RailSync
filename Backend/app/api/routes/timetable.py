@@ -133,3 +133,86 @@ async def get_train_schedule(train_number: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch train schedule: {str(e)}",
         )
+
+
+@router.get(
+    "/divisions",
+    summary="List All Supported Railway Divisions",
+    description="Returns all Indian Railways divisions covered by the train schedule network (Delhi, Agra, Kota, Ratlam, Vadodara, Mumbai, etc.).",
+)
+async def list_divisions():
+    """List all divisions dynamically derived from the timetable network."""
+    try:
+        divisions = await railgadi_service.get_all_divisions()
+        return {
+            "divisions": divisions,
+            "total_divisions": len(divisions),
+        }
+    except Exception as e:
+        log.error("Failed to list divisions: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve divisions: {str(e)}",
+        )
+
+
+@router.get(
+    "/corridors",
+    summary="List All Supported Railway Corridors",
+    description="Returns all railway trunk corridors and their constituent divisions.",
+)
+async def list_corridors():
+    """List all corridors dynamically derived from the timetable network."""
+    try:
+        corridors = await railgadi_service.get_all_corridors()
+        return {
+            "corridors": corridors,
+            "total_corridors": len(corridors),
+        }
+    except Exception as e:
+        log.error("Failed to list corridors: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve corridors: {str(e)}",
+        )
+
+
+@router.get(
+    "/divisions/{division}/timetable",
+    summary="Fetch Division Timetable & Maintenance Blocks",
+    description="Fetches live train schedules and zero-conflict maintenance blocks filtered specifically for a selected railway division.",
+)
+async def get_division_timetable(
+    division: str,
+    days: int = Query(default=7, ge=1, le=30, description="Number of days to plan"),
+):
+    """Get timetable and maintenance blocks filtered for a single division."""
+    try:
+        return await railgadi_service.get_division_timetable(division_name=division, days=days)
+    except Exception as e:
+        log.error("Failed to fetch division timetable for %s: %s", division, str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve timetable for division {division}: {str(e)}",
+        )
+
+
+# API v1 Router Aliases
+api_v1_router = APIRouter(prefix="/api/v1", tags=["Timetable & Network API v1"])
+
+@api_v1_router.get("/timetable")
+async def v1_timetable(days: int = Query(default=7, ge=1, le=30)):
+    return await get_live_timetable(days=days)
+
+@api_v1_router.get("/divisions")
+async def v1_divisions():
+    return await list_divisions()
+
+@api_v1_router.get("/corridors")
+async def v1_corridors():
+    return await list_corridors()
+
+@api_v1_router.get("/divisions/{division}/timetable")
+async def v1_division_timetable(division: str, days: int = Query(default=7, ge=1, le=30)):
+    return await get_division_timetable(division=division, days=days)
+

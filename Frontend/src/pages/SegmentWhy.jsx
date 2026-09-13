@@ -109,7 +109,7 @@ export default function SegmentWhy() {
           <div className="flex flex-wrap items-center justify-between gap-space-xs px-space-md py-space-xs bg-surface-container text-on-surface-variant font-label-caps text-label-caps uppercase tracking-wider">
             <div className="flex items-center gap-space-xs">
               <span className={`w-2 h-2 rounded-full ${simulatedRepair ? 'bg-on-tertiary-container' : isCritical ? 'bg-error animate-pulse' : 'bg-secondary'}`}></span>
-              <span>DIVISION: AGRA &amp; DELHI // NORTHERN RAILWAY NETWORK</span>
+              <span>DIVISION: {segmentData?.division ? `${segmentData.division.toUpperCase()} DIVISION` : 'AGRA & DELHI'} // RAILWAY NETWORK</span>
             </div>
             <div className="flex items-center gap-space-sm font-code-sm text-code-sm normal-case">
               <span>

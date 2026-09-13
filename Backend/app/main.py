@@ -89,6 +89,7 @@ app.include_router(optimization.router)
 app.include_router(plans.router)
 app.include_router(feedback.router)
 app.include_router(timetable.router)
+app.include_router(timetable.api_v1_router)
 
 
 @app.get("/")

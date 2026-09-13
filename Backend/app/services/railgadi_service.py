@@ -65,6 +65,23 @@ STATION_SEGMENT_MAP = {
     "BVI": "SEG-010", "MMCT": "SEG-010", "BCT": "SEG-010", "BDTS": "SEG-010",
 }
 
+# ── Verified Indian Railways Station → Division Mapping ───────────────────
+# Used when API does not provide explicit division metadata
+STATION_DIVISION_MAP = {
+    # Delhi Division (Northern Railway)
+    "NDLS": "Delhi", "NZM": "Delhi", "DEE": "Delhi", "GZB": "Delhi", "DLI": "Delhi", "TKD": "Delhi", "FDB": "Delhi",
+    # Agra Division (North Central Railway)
+    "MTJ": "Agra", "AGC": "Agra", "BTE": "Agra", "IDH": "Agra", "DHO": "Agra", "MLP": "Agra", "AF": "Agra", "AH": "Agra",
+    # Kota Division (West Central Railway)
+    "KOTA": "Kota", "SWM": "Kota", "HNQ": "Kota", "SKS": "Kota", "COR": "Kota", "GGC": "Kota", "BWM": "Kota", "RMA": "Kota",
+    # Ratlam Division (Western Railway)
+    "RTM": "Ratlam", "NAD": "Ratlam", "UJN": "Ratlam", "INDB": "Ratlam", "CTO": "Ratlam", "MDS": "Ratlam", "NGB": "Ratlam", "MGN": "Ratlam", "DWX": "Ratlam",
+    # Vadodara Division (Western Railway)
+    "BRC": "Vadodara", "GDA": "Vadodara", "DHD": "Vadodara", "PLN": "Vadodara", "ADI": "Vadodara", "MSH": "Vadodara", "KYN": "Vadodara", "GNC": "Vadodara", "ST": "Vadodara", "NVS": "Vadodara", "ANND": "Vadodara", "BH": "Vadodara",
+    # Mumbai Division (Western / Central Railway)
+    "BVI": "Mumbai", "MMCT": "Mumbai", "BDTS": "Mumbai", "BCT": "Mumbai", "BL": "Mumbai", "VAPI": "Mumbai", "CSMT": "Mumbai", "DR": "Mumbai", "TNA": "Mumbai",
+}
+
 # Priority classification by train type keywords
 TRAIN_PRIORITY_KEYWORDS = {
     "rajdhani": "rajdhani",
@@ -99,6 +116,16 @@ def _station_to_segment(station_code: str) -> str:
     return STATION_SEGMENT_MAP.get(station_code.upper(), "SEG-005")
 
 
+def _station_to_division(station_code: str, explicit_division: str | None = None) -> str:
+    """Resolve division using priority:
+    1. If explicit API provides division metadata -> derive division from API.
+    2. If API does not provide division metadata -> use verified station-to-division mapping fallback.
+    """
+    if explicit_division and str(explicit_division).strip():
+        return str(explicit_division).strip()
+    return STATION_DIVISION_MAP.get(station_code.upper(), "Delhi")
+
+
 def _parse_time_str(time_str: str) -> tuple[int, int] | None:
     """Parse 'HH:MM' or 'H:MM' time string to (hour, minute)."""
     if not time_str or time_str in ("None", "--", "Source", "Destination"):
@@ -130,7 +157,7 @@ async def fetch_train_schedule_from_api(train_no: str) -> dict | None:
     for endpoint_tpl in API_ENDPOINTS:
         url = endpoint_tpl.format(key=RAILGADI_API_KEY, train_no=train_no, date=today)
         try:
-            async with httpx.AsyncClient(timeout=3.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=0.5, follow_redirects=True) as client:
                 resp = await client.get(url)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -145,6 +172,7 @@ async def fetch_train_schedule_from_api(train_no: str) -> dict | None:
             log.debug("API endpoint failed for train %s: %s — %s", train_no, url[:60], str(e)[:100])
             continue
 
+    _schedule_cache[cache_key] = {"data": None, "_cached_at": time.time()}
     log.debug("All API endpoints failed for train %s — using fixture fallback", train_no)
     return None
 
@@ -277,6 +305,10 @@ def _adapt_api_response_to_fixture(api_data: dict, train_no: str) -> dict | None
     }
 
 
+_corridor_cache: dict[str, Any] = {}
+_corridor_cache_time: float = 0
+
+
 async def fetch_corridor_timetable(
     train_numbers: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -289,6 +321,11 @@ async def fetch_corridor_timetable(
       - fetch_errors: list of train numbers that failed
       - last_updated: ISO timestamp
     """
+    global _corridor_cache, _corridor_cache_time
+    cache_key = ",".join(train_numbers) if train_numbers else "default"
+    if cache_key in _corridor_cache and (time.time() - _corridor_cache_time < _cache_ttl_seconds):
+        return _corridor_cache[cache_key]
+
     from railsync.layer0.timetable_fixture import PUBLISHED_TRAIN_FIXTURES
 
     if train_numbers is None:
@@ -324,7 +361,7 @@ async def fetch_corridor_timetable(
         len(api_trains), len(fixture_trains), len(fetch_errors),
     )
 
-    return {
+    result = {
         "trains": all_trains,
         "fetched_count": len(api_trains),
         "fixture_count": len(fixture_trains),
@@ -332,6 +369,9 @@ async def fetch_corridor_timetable(
         "total_trains": len(all_trains),
         "last_updated": datetime.now().isoformat(),
     }
+    _corridor_cache[cache_key] = result
+    _corridor_cache_time = time.time()
+    return result
 
 
 def generate_timetable_slots(
@@ -517,6 +557,7 @@ async def get_full_timetable_with_blocks(
                 "arr_time": t.get("arr_time_str", ""),
                 "source": t.get("source", "fixture"),
                 "stops_count": len(t.get("stops", [])),
+                "stops": t.get("stops", []),
                 "segments_traversed": len(t.get("segment_passages", [])),
             }
             for t in trains
@@ -549,5 +590,128 @@ async def get_full_timetable_with_blocks(
             "days_covered": days,
             "last_updated": datetime.now().isoformat(),
             "execution_time_ms": elapsed_ms,
+        },
+    }
+
+
+async def get_all_divisions() -> list[dict[str, Any]]:
+    """Return all divisions supported by the Railway API & timetable network."""
+    timetable_result = await fetch_corridor_timetable()
+    trains = timetable_result["trains"]
+
+    div_map: dict[str, dict[str, Any]] = {}
+
+    for t in trains:
+        t_num = t["train_number"]
+        t_name = t["train_name"]
+        stops = t.get("stops", [])
+        for s in stops:
+            stn = s.get("station", "")
+            explicit_div = s.get("division")
+            div_name = _station_to_division(stn, explicit_div)
+            if not div_name:
+                continue
+            if div_name not in div_map:
+                div_map[div_name] = {
+                    "division": div_name,
+                    "zone": "NCR" if div_name in ("Agra", "Allahabad", "Jhansi") else (
+                        "NR" if div_name == "Delhi" else (
+                            "WCR" if div_name == "Kota" else (
+                                "WR" if div_name in ("Ratlam", "Vadodara", "Mumbai") else "IR"
+                            )
+                        )
+                    ),
+                    "corridor": t.get("corridor", "Delhi–Mumbai Rajdhani Corridor"),
+                    "stations": set(),
+                    "train_numbers": set(),
+                    "segments": set(),
+                }
+            div_map[div_name]["stations"].add(stn)
+            div_map[div_name]["train_numbers"].add(t_num)
+            seg_id = _station_to_segment(stn)
+            if seg_id:
+                div_map[div_name]["segments"].add(seg_id)
+
+    # Format and sort in geographic trunk route order
+    results = []
+    order = ["Delhi", "Agra", "Kota", "Ratlam", "Vadodara", "Mumbai"]
+    for div_name in sorted(div_map.keys(), key=lambda x: order.index(x) if x in order else 99):
+        d = div_map[div_name]
+        results.append({
+            "division": d["division"],
+            "zone": d["zone"],
+            "corridor": d["corridor"],
+            "stations": sorted(list(d["stations"])),
+            "train_count": len(d["train_numbers"]),
+            "train_numbers": sorted(list(d["train_numbers"])),
+            "segments": sorted(list(d["segments"])),
+        })
+    return results
+
+
+async def get_all_corridors() -> list[dict[str, Any]]:
+    """Return all railway corridors supported by the API."""
+    divisions = await get_all_divisions()
+    return [
+        {
+            "id": "delhi_mumbai",
+            "name": "Delhi–Mumbai Rajdhani Corridor",
+            "divisions": [d["division"] for d in divisions],
+            "total_stations": sum(len(d["stations"]) for d in divisions),
+            "total_trains": max((d["train_count"] for d in divisions), default=0),
+            "status": "OPERATIONAL",
+        }
+    ]
+
+
+async def get_division_timetable(division_name: str, days: int = 7) -> dict[str, Any]:
+    """Return timetable, trains, and maintenance windows for a specific division."""
+    full_data = await get_full_timetable_with_blocks(days=days)
+    div_clean = division_name.strip().lower()
+
+    # Filter trains having stops in this division
+    filtered_trains = []
+    target_stations = set()
+    for t in full_data["trains"]:
+        stops = t.get("stops", [])
+        matched = False
+        for s in stops:
+            stn = s.get("station", "")
+            d = _station_to_division(stn, s.get("division"))
+            if d.lower() == div_clean:
+                matched = True
+                target_stations.add(stn)
+        if matched:
+            filtered_trains.append(t)
+
+    # Target segments
+    target_segments = set(_station_to_segment(stn) for stn in target_stations)
+
+    # Filter maintenance blocks
+    filtered_blocks = [
+        b for b in full_data["maintenance_blocks"]
+        if b.get("segment_id") in target_segments
+    ]
+
+    # Filter timetable slots
+    filtered_slots = [
+        s for s in full_data["timetable_slots"]
+        if s.get("segment_id") in target_segments
+    ]
+
+    return {
+        "division": division_name,
+        "stations": sorted(list(target_stations)),
+        "segments": sorted(list(target_segments)),
+        "trains": filtered_trains,
+        "total_trains": len(filtered_trains),
+        "timetable_slots": filtered_slots,
+        "maintenance_blocks": filtered_blocks,
+        "total_blocks": len(filtered_blocks),
+        "summary": {
+            **full_data["summary"],
+            "division": division_name,
+            "division_trains": len(filtered_trains),
+            "division_blocks": len(filtered_blocks),
         },
     }
