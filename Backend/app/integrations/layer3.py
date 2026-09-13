@@ -21,30 +21,37 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional, Dict, List
 
-from Optimization import (
-    optimize_schedule,
-    what_if_reoptimize,
-    generate_weekly_plan,
-    generate_monthly_plan,
-    compute_pareto_frontier,
-    evaluate_scenario_robustness,
-    generate_plan_b_contingencies,
-    reoptimize_fast,
-    MaintenanceTask,
-    BlockWindow,
-    DisruptionScenario,
-    OptimizerConfig,
-    PolicyPreset,
-    OptimizationResult,
-    WhatIfResult,
-    MultiHorizonScheduleResult,
-    ParetoFrontierResult,
-    ScenarioRobustnessResult,
-    PlanBRepository,
-)
 from app.core.logging import get_logger
 
 log = get_logger("integration.layer3")
+
+# Lazy import: ortools DLLs may be missing system-level dependencies (VC++ runtime)
+_LAYER3_AVAILABLE = False
+try:
+    from Optimization import (
+        optimize_schedule,
+        what_if_reoptimize,
+        generate_weekly_plan,
+        generate_monthly_plan,
+        compute_pareto_frontier,
+        evaluate_scenario_robustness,
+        generate_plan_b_contingencies,
+        reoptimize_fast,
+        MaintenanceTask,
+        BlockWindow,
+        DisruptionScenario,
+        OptimizerConfig,
+        PolicyPreset,
+        OptimizationResult,
+        WhatIfResult,
+        MultiHorizonScheduleResult,
+        ParetoFrontierResult,
+        ScenarioRobustnessResult,
+        PlanBRepository,
+    )
+    _LAYER3_AVAILABLE = True
+except Exception as _import_err:
+    log.warning("Layer 3 (Optimization/ortools) unavailable: %s", _import_err)
 
 # Explicit mapping from Backend integer criticality (1-5) to Optimization category string
 CRITICALITY_MAP: Dict[int, str] = {
@@ -58,11 +65,7 @@ CRITICALITY_MAP: Dict[int, str] = {
 
 def is_available() -> bool:
     """Returns True if the Layer 3 Optimization package is imported and operational."""
-    try:
-        from Optimization import optimize_schedule
-        return optimize_schedule is not None
-    except Exception:
-        return False
+    return _LAYER3_AVAILABLE
 
 
 

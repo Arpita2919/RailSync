@@ -43,19 +43,39 @@ def main():
     parser.add_argument("--no-opt", action="store_true", help="Skip initial optimization run")
     args = parser.parse_args()
 
-    print(
-        "\n"
-        "╔══════════════════════════════════════════════════════════════╗\n"
-        "║  RailSync 2.0 — Auto-seeding DISABLED                      ║\n"
-        "║                                                             ║\n"
-        "║  Synthetic data is no longer injected into the database.    ║\n"
-        "║  Submit your segments and tasks through the REST API:       ║\n"
-        "║                                                             ║\n"
-        "║    POST /ingest/segments                                    ║\n"
-        "║    POST /ingest/tasks                                       ║\n"
-        "║    POST /optimize                                           ║\n"
-        "╚══════════════════════════════════════════════════════════════╝\n"
-    )
+    # Display banner safely handling UnicodeEncodeError on Windows consoles
+    try:
+        print(
+            "\n"
+            "╔══════════════════════════════════════════════════════════════╗\n"
+            "║  RailSync 2.0 — Auto-seeding DISABLED                      ║\n"
+            "║                                                             ║\n"
+            "║  Synthetic data is no longer injected into the database.    ║\n"
+            "║  Submit your segments and tasks through the REST API:       ║\n"
+            "║                                                             ║\n"
+            "║    POST /ingest/segments                                    ║\n"
+            "║    POST /ingest/tasks                                       ║\n"
+            "║    POST /optimize                                           ║\n"
+            "╚══════════════════════════════════════════════════════════════╝\n"
+        )
+    except UnicodeEncodeError:
+        # Fallback: write UTF‑8 encoded bytes directly to stdout buffer
+        import sys
+        banner = (
+            "\n"
+            "╔══════════════════════════════════════════════════════════════╗\n"
+            "║  RailSync 2.0 — Auto-seeding DISABLED                      ║\n"
+            "║                                                             ║\n"
+            "║  Synthetic data is no longer injected into the database.    ║\n"
+            "║  Submit your segments and tasks through the REST API:       ║\n"
+            "║                                                             ║\n"
+            "║    POST /ingest/segments                                    ║\n"
+            "║    POST /ingest/tasks                                       ║\n"
+            "║    POST /optimize                                           ║\n"
+            "╚══════════════════════════════════════════════════════════════╝\n"
+        )
+        sys.stdout.buffer.write(banner.encode("utf-8"))
+        sys.stdout.flush()
 
 
 if __name__ == "__main__":
