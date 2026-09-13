@@ -3,15 +3,31 @@
  * Connects Frontend directly to FastAPI Backend on http://127.0.0.1:8000
  * Orchestrates Layer 0 (Master Data), Layer 1 (Risk/ML), Layer 2 (Negotiation),
  * and Layer 3 (CP-SAT Block Optimization).
+ * Includes Supabase Bearer Token Authentication for FastAPI Authorization.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://railsync-0m2l.onrender.com';
+import { supabase } from './supabaseClient.js';
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 async function request(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
+
+  // Retrieve active Supabase session token
+  let token = null;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    token = session?.access_token || null;
+  } catch (err) {
+    // Ignore session retrieval error if unauthenticated
+  }
+
+  const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+
   const config = {
     headers: {
       'Content-Type': 'application/json',
+      ...authHeader,
       ...options.headers,
     },
     ...options,
@@ -20,6 +36,18 @@ async function request(endpoint, options = {}) {
   try {
     const response = await fetch(url, config);
     if (!response.ok) {
+      if (response.status === 401) {
+        console.warn('[RailSync API] 401 Unauthorized returned from backend for endpoint:', endpoint);
+        // If 401, re-verify or sign out if token is invalid/expired
+        if (token) {
+          try {
+            await supabase.auth.signOut();
+          } catch {
+            // Ignore signout error
+          }
+        }
+      }
+
       const errorText = await response.text();
       let errorData;
       try {

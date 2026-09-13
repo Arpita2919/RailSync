@@ -117,7 +117,9 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
         finally:
             pass
 
+    from app.core.auth import get_current_user
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_current_user] = lambda: {"id": "test-user-id", "email": "test@railsync.in", "role": "authenticated"}
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

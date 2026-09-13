@@ -18,10 +18,11 @@ for p in [str(_workspace_root), str(_backend_dir)]:
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import feedback, health, negotiation, optimization, plans, risk, tasks, timetable
+from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.logging import get_logger, setup_logging
 
@@ -80,15 +81,15 @@ else:
         allow_headers=["*"],
     )
 
-# Register routes
+# Register routes (Public health check, protected business APIs)
 app.include_router(health.router)
-app.include_router(tasks.router)
-app.include_router(risk.router)
-app.include_router(negotiation.router)
-app.include_router(optimization.router)
-app.include_router(plans.router)
-app.include_router(feedback.router)
-app.include_router(timetable.router)
+app.include_router(tasks.router, dependencies=[Depends(get_current_user)])
+app.include_router(risk.router, dependencies=[Depends(get_current_user)])
+app.include_router(negotiation.router, dependencies=[Depends(get_current_user)])
+app.include_router(optimization.router, dependencies=[Depends(get_current_user)])
+app.include_router(plans.router, dependencies=[Depends(get_current_user)])
+app.include_router(feedback.router, dependencies=[Depends(get_current_user)])
+app.include_router(timetable.router, dependencies=[Depends(get_current_user)])
 
 
 @app.get("/")

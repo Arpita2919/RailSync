@@ -13,7 +13,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from Optimization import DisruptionScenario, MaintenanceTask, TaskChangeDiff, WhatIfResult
+try:
+    from Optimization import DisruptionScenario, MaintenanceTask, TaskChangeDiff, WhatIfResult
+except Exception:
+    DisruptionScenario = None  # type: ignore[assignment,misc]
+    MaintenanceTask = None  # type: ignore[assignment,misc]
+    TaskChangeDiff = None  # type: ignore[assignment,misc]
+    WhatIfResult = None  # type: ignore[assignment,misc]
 from app.core.logging import get_logger
 from app.db import repositories as repo
 from app.integrations import layer3
