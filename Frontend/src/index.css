@@ -37,3 +37,50 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Virtual Railway Corridor Track Styling */
+.rail-ballast {
+  background-color: #0f172a;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 8px 8px;
+}
+
+.rail-ties {
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 8px,
+    rgba(255, 255, 255, 0.12) 8px,
+    rgba(255, 255, 255, 0.12) 11px
+  );
+}
+
+.hazard-stripes-red {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(220, 38, 38, 0.85),
+    rgba(220, 38, 38, 0.85) 10px,
+    rgba(153, 27, 27, 0.95) 10px,
+    rgba(153, 27, 27, 0.95) 20px
+  );
+}
+
+.caution-stripes-amber {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(245, 158, 11, 0.85),
+    rgba(245, 158, 11, 0.85) 10px,
+    rgba(180, 83, 9, 0.95) 10px,
+    rgba(180, 83, 9, 0.95) 20px
+  );
+}
+
+@keyframes signalPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.15); }
+}
+
+.animate-signal-pulse {
+  animation: signalPulse 2s infinite ease-in-out;
+}
+

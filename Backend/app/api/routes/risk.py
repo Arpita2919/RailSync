@@ -12,8 +12,8 @@ router = APIRouter(tags=["Risk"])
 
 
 @router.post("/risk/predict", response_model=RiskPredictionResponse)
-def predict_segment_risk(request: PredictRiskRequest):
-    return layer1.predict_risk(request.model_dump())
+def predict_segment_risk(request: PredictRiskRequest, db: Session = Depends(get_db)):
+    return risk_service.predict_and_store_segment_risk(db, request.model_dump())
 
 
 @router.get("/risk/segments", response_model=list[SegmentRiskSummary])
