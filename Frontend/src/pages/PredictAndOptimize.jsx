@@ -634,7 +634,7 @@ export default function PredictAndOptimize() {
                   const assignment = pipelineResults.matchedAssignment;
                   const startStr = assignment?.block_start ? new Date(assignment.block_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '01:30';
                   const endStr = assignment?.block_end ? new Date(assignment.block_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '05:00';
-                  const blockTitle = assignment?.assigned_block || 'BLK-D1-NIGHT';
+                  const blockTitle = assignment?.assigned_block ? assignment.assigned_block.replace('-NIGHT', '') : 'BLK-D1';
                   const windowDisplay = `${startStr} - ${endStr} IST`;
 
                   return (

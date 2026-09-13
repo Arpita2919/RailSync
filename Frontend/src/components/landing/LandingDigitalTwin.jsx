@@ -216,7 +216,7 @@ export default function LandingDigitalTwin() {
               <p className="font-body-sm text-xs text-[#dfe9f5] leading-relaxed">
                 {seg.id === 'B'
                   ? 'Elevated risk score: Block B-12 has been assigned the next available maintenance window respecting train headway constraints.'
-                  : 'Risk score within acceptable range. Routine inspection assigned to a night window without train path conflicts.'}
+                  : 'Risk score within acceptable range. Routine inspection assigned to a scheduled maintenance window without train path conflicts.'}
               </p>
             </div>
           </div>

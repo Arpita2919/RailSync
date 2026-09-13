@@ -282,10 +282,10 @@ export default function WhatIfSandbox() {
                             </span>
                           </td>
                           <td className="py-space-sm px-space-sm text-on-surface-variant font-mono">
-                            {diff.original_block || 'BLK-D1-NIGHT (01:00-05:00)'}
+                            {diff.original_block?.replace('-NIGHT', '') || 'BLK-D1 (01:00-05:00)'}
                           </td>
                           <td className="py-space-sm px-space-sm font-bold text-tertiary font-mono">
-                            {diff.new_block || 'BLK-D1-MIDDAY (11:30-14:30)'}
+                            {diff.new_block?.replace('-MIDDAY', '') || 'BLK-D1 (11:30-14:30)'}
                           </td>
                           <td className="py-space-sm px-space-sm text-on-surface font-semibold max-w-[320px]">
                             {diff.reason}
