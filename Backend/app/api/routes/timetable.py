@@ -22,7 +22,7 @@ router = APIRouter(prefix="/timetable", tags=["Timetable & Maintenance Blocks"])
     "/live",
     summary="Fetch Live Train Timetable & Generate Maintenance Blocks",
     description=(
-        "Fetches live train schedules from the RailGadi API for all corridor trains, "
+        "Fetcheswhy wh live train schedules from the RailGadi API for all corridor trains, "
         "converts them to timetable block-unavailability windows, and computes optimized "
         "maintenance possession blocks that never conflict with passenger train movements.\n\n"
         "Returns:\n"
