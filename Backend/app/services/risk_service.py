@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
@@ -140,6 +141,57 @@ def _compute_and_store(db: Session, seg):
     return pred
 
 
+def predict_and_store_segment_risk(db: Session, request_data: dict) -> RiskPredictionResponse:
+    """Predict risk for a segment and persist both the segment and risk prediction to DB."""
+    segment_id = request_data.get("segment_id") or f"SEG-NEW-{int(time.time())}"
+    
+    # 1. Upsert segment into DB
+    seg_kwargs = {
+        "segment_id": segment_id,
+        "division": request_data.get("division", "Delhi"),
+        "asset_type": request_data.get("asset_type", "Track"),
+        "length_km": float(request_data.get("length_km", 10.0)),
+        "age_years": float(request_data.get("age_years", 20.0)),
+        "installation_year": request_data.get("installation_year"),
+        "monsoon_exposure": request_data.get("monsoon_exposure", "low"),
+        "freight_density_class": request_data.get("freight_density_class", "medium"),
+    }
+    seg = repo.upsert_segment(db, **seg_kwargs)
+
+    # 2. Run Layer 1 ML risk prediction
+    pred_data = layer1.predict_risk(request_data)
+    log.info("Risk predicted and storing segment=%s risk_30d=%.4f", segment_id, pred_data["risk_30d"])
+
+    # 3. Save risk prediction to DB
+    pred = repo.save_risk_prediction(db, **{
+        "segment_id": segment_id,
+        "risk_30d": pred_data["risk_30d"],
+        "expected_downtime_days": pred_data["expected_downtime_days"],
+        "preventive_block_duration_hrs": pred_data["preventive_block_duration_hrs"],
+        "confidence": pred_data["confidence"],
+        "overrun_probability": pred_data.get("overrun_probability"),
+        "cold_start_fallback": pred_data.get("cold_start_fallback", False),
+        "survival_curve": pred_data.get("survival_curve"),
+        "feature_contributions": pred_data.get("feature_contributions"),
+        "model_version": pred_data.get("model_version"),
+    })
+    db.commit()
+
+    return RiskPredictionResponse(
+        segment_id=segment_id,
+        risk_30d=pred.risk_30d,
+        expected_downtime_days=pred.expected_downtime_days,
+        preventive_block_duration_hrs=pred.preventive_block_duration_hrs,
+        confidence=pred.confidence,
+        overrun_probability=pred.overrun_probability,
+        cold_start_fallback=pred.cold_start_fallback,
+        survival_curve=pred.survival_curve or [],
+        feature_contributions=pred.feature_contributions or [],
+        model_version=pred.model_version,
+        prediction_timestamp=pred.prediction_timestamp,
+    )
+
+
 def _segment_to_dict(seg) -> dict:
     return {
         "segment_id": seg.segment_id,
@@ -149,3 +201,4 @@ def _segment_to_dict(seg) -> dict:
         "monsoon_exposure": seg.monsoon_exposure,
         "freight_density_class": seg.freight_density_class,
     }
+

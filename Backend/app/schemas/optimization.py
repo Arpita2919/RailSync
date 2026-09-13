@@ -105,15 +105,19 @@ class WhatIfResponse(BaseModel):
     feasible: bool
     run_id: str
     scenario_id: Optional[str] = None
+    status: str = Field(default="feasible", description="Status: feasible, infeasible, error")
     plan_b: Optional[dict[str, Any]] = None
     changed_assignments: list[PlanDiff] = []
+    affected_tasks: list[PlanDiff] = []
     added_assignments: list[AssignmentOut] = []
     removed_assignments: list[AssignmentOut] = []
+    assignments: list[AssignmentOut] = []
     reason: list[str] = []
     execution_time_ms: int = 0
     objective_values: Optional[dict[str, float]] = None
     solver_status: Optional[str] = None
     summary: Optional[str] = None
+    metrics_summary: Optional[dict[str, Any]] = None
 
 
 class ParetoResponse(BaseModel):

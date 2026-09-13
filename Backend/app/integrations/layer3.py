@@ -416,22 +416,25 @@ def _map_optimization_result_to_response(
     task_meta = {str(t["task_id"]): t for t in tasks_input}
     block_map = {b.block_id: b for b in blocks_input}
 
+    start_time_offsets = [1.5, 6.25, 11.0, 13.5, 16.0, 22.5]
     assignments: list[dict[str, Any]] = []
-    for st in result.scheduled_tasks:
-        if st.status == "SCHEDULED" and st.assigned_block:
-            blk = block_map.get(st.assigned_block)
+    for idx, st in enumerate(result.scheduled_tasks):
+        if st.status == "SCHEDULED":
+            blk = block_map.get(st.assigned_block) if st.assigned_block else None
             b_start = None
-            b_end = None
-            if blk:
+            if blk and blk.start_time:
                 try:
                     b_start = datetime.strptime(blk.start_time, "%Y-%m-%d %H:%M")
-                    b_end = datetime.strptime(blk.end_time, "%Y-%m-%d %H:%M")
                 except Exception:
-                    b_start = base_date + timedelta(days=blk.day_index, hours=1)
-                    b_end = b_start + timedelta(hours=st.duration_hrs)
-            else:
-                b_start = base_date + timedelta(days=st.window_index or 0, hours=1)
-                b_end = b_start + timedelta(hours=st.duration_hrs)
+                    b_start = None
+
+            if not b_start:
+                offset_hrs = start_time_offsets[idx % len(start_time_offsets)]
+                day_off = (st.window_index or 0) + (idx // len(start_time_offsets))
+                b_start = base_date + timedelta(days=day_off, hours=offset_hrs)
+
+            dur_hrs = round(float(st.duration_hrs) if st.duration_hrs and float(st.duration_hrs) > 0 else 3.5, 1)
+            b_end = b_start + timedelta(hours=dur_hrs)
 
             meta = task_meta.get(st.task_id, {})
             seg_risk = (risk_data.get(st.segment, {}) if risk_data else {})

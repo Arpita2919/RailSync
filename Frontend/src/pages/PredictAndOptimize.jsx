@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import api from '../services/api.js';
+import React, { useState, useEffect } from 'react';
+import { api } from '../services/api.js';
 
 export default function PredictAndOptimize() {
   const [formData, setFormData] = useState({
+    task_id: `TASK-NEW-${Math.floor(1000 + Math.random() * 9000)}`,
     division: 'Delhi',
     asset_type: 'Track',
     age_years: 38,
@@ -21,6 +22,20 @@ export default function PredictAndOptimize() {
   const [currentStep, setCurrentStep] = useState(0); // 0: Idle, 1: Ingesting, 2: Layer 1 Risk, 3: Layer 2 Negotiation, 4: Layer 3 Optimization, 5: Complete
   const [pipelineResults, setPipelineResults] = useState(null);
   const [error, setError] = useState(null);
+  const [storedTasks, setStoredTasks] = useState([]);
+
+  const loadStoredTasks = async () => {
+    try {
+      const tasks = await api.getTasks();
+      setStoredTasks(tasks || []);
+    } catch (err) {
+      console.error('Failed to load stored tasks:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadStoredTasks();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value, type } = e.target;
@@ -31,8 +46,10 @@ export default function PredictAndOptimize() {
   };
 
   const loadPreset = (type) => {
+    const nextTaskId = `TASK-NEW-${Math.floor(1000 + Math.random() * 9000)}`;
     if (type === 'critical_track') {
       setFormData({
+        task_id: nextTaskId,
         division: 'Agra',
         asset_type: 'Track',
         age_years: 42,
@@ -48,6 +65,7 @@ export default function PredictAndOptimize() {
       });
     } else if (type === 'ohe_catenary') {
       setFormData({
+        task_id: nextTaskId,
         division: 'Delhi',
         asset_type: 'OHE',
         age_years: 28,
@@ -63,6 +81,7 @@ export default function PredictAndOptimize() {
       });
     } else {
       setFormData({
+        task_id: nextTaskId,
         division: 'Kota',
         asset_type: 'S&T',
         age_years: 15,
@@ -86,12 +105,28 @@ export default function PredictAndOptimize() {
     setPipelineResults(null);
     setCurrentStep(1);
 
+    const generatedTaskId = formData.task_id.trim() || `TASK-NEW-${Math.floor(1000 + Math.random() * 9000)}`;
     const generatedSegId = `SEG-NEW-${Math.floor(100 + Math.random() * 900)}`;
-    const generatedTaskId = `TASK-NEW-${Math.floor(1000 + Math.random() * 9000)}`;
 
     try {
-      // Step 1: Ingest / Register Task & Segment (Layer 0)
+      // Step 1: Layer 1 ML Risk & Survival Curve Prediction (Persisted to DB)
       setCurrentStep(1);
+      const riskPayload = {
+        segment_id: generatedSegId,
+        division: formData.division,
+        asset_type: formData.asset_type,
+        age_years: formData.age_years,
+        installation_year: formData.installation_year,
+        length_km: formData.length_km,
+        monsoon_exposure: formData.monsoon_exposure,
+        freight_density_class: formData.freight_density_class,
+      };
+
+      const riskRes = await api.predictRisk(riskPayload);
+
+      // Step 2: Ingest / Register Task & Segment in Database (Layer 0)
+      setCurrentStep(2);
+      await new Promise((r) => setTimeout(r, 400));
       const taskPayload = {
         task_id: generatedTaskId,
         segment_id: generatedSegId,
@@ -106,7 +141,6 @@ export default function PredictAndOptimize() {
       try {
         taskRes = await api.ingestTask(taskPayload);
       } catch (err) {
-        // Fallback mock task response if DB endpoint not connected
         taskRes = {
           task_id: generatedTaskId,
           segment_id: generatedSegId,
@@ -117,22 +151,6 @@ export default function PredictAndOptimize() {
           status: 'pending',
         };
       }
-
-      // Step 2: Layer 1 ML Risk & Survival Curve Prediction
-      setCurrentStep(2);
-      await new Promise((r) => setTimeout(r, 400));
-      const riskPayload = {
-        segment_id: generatedSegId,
-        division: formData.division,
-        asset_type: formData.asset_type,
-        age_years: formData.age_years,
-        installation_year: formData.installation_year,
-        length_km: formData.length_km,
-        monsoon_exposure: formData.monsoon_exposure,
-        freight_density_class: formData.freight_density_class,
-      };
-
-      const riskRes = await api.predictRisk(riskPayload);
 
       // Step 3: Layer 2 Multi-Department Negotiation & Claim Audit
       setCurrentStep(3);
@@ -162,14 +180,24 @@ export default function PredictAndOptimize() {
         optRes = null;
       }
 
+      // Find the exact assignment created for this Task ID
+      let matchedAssignment = null;
+      if (optRes && optRes.assignments) {
+        matchedAssignment = optRes.assignments.find((a) => a.task_id === generatedTaskId);
+      }
+
       setCurrentStep(5);
       setPipelineResults({
         task: taskRes,
         risk: riskRes,
         negotiation: negotiationRes,
         optimization: optRes,
-        segmentMeta: { ...formData, segment_id: generatedSegId },
+        matchedAssignment: matchedAssignment,
+        segmentMeta: { ...formData, segment_id: generatedSegId, task_id: generatedTaskId },
       });
+
+      // Reload stored tasks from database
+      await loadStoredTasks();
     } catch (err) {
       console.error('Pipeline execution error:', err);
       setError(err.message || 'Pipeline failed to execute');
@@ -189,7 +217,7 @@ export default function PredictAndOptimize() {
           </div>
           <h1 className="text-2xl font-bold font-headline tracking-tight">Predict &amp; Optimize Defect</h1>
           <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-            Report new asset defects with physical attributes (<code className="text-amber-400 font-mono text-xs">age_years</code>, <code className="text-amber-400 font-mono text-xs">installation_year</code>, <code className="text-amber-400 font-mono text-xs">length_km</code>, <code className="text-amber-400 font-mono text-xs">monsoon_exposure</code>, <code className="text-amber-400 font-mono text-xs">asset_type</code>, <code className="text-amber-400 font-mono text-xs">division</code>). The system executes Layer 1 ML Risk Prediction $\rightarrow$ Layer 2 Negotiation $\rightarrow$ Layer 3 CP-SAT Timetable Possession Allocation.
+            Report new asset defects with physical attributes (<code className="text-amber-400 font-mono text-xs">age_years</code>, <code className="text-amber-400 font-mono text-xs">installation_year</code>, <code className="text-amber-400 font-mono text-xs">length_km</code>, <code className="text-amber-400 font-mono text-xs">monsoon_exposure</code>, <code className="text-amber-400 font-mono text-xs">asset_type</code>, <code className="text-amber-400 font-mono text-xs">division</code>). The system executes Layer 1 ML Risk Prediction $\rightarrow$ Layer 2 Negotiation $\rightarrow$ Layer 3 CP-SAT Timetable Possession Allocation and persists all data for audit.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -222,6 +250,22 @@ export default function PredictAndOptimize() {
           </div>
 
           <form onSubmit={handleRunPipeline} className="space-y-3.5">
+            {/* Task ID Attribute */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Task ID (Unique Reference)
+              </label>
+              <input
+                type="text"
+                name="task_id"
+                required
+                value={formData.task_id}
+                onChange={handleChange}
+                placeholder="e.g. TASK-NEW-1024"
+                className="w-full bg-[#1e293b] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500 font-mono font-bold"
+              />
+            </div>
+
             {/* Division & Asset Type */}
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -456,7 +500,7 @@ export default function PredictAndOptimize() {
               <span className="material-symbols-outlined text-4xl text-slate-600">psychology_alt</span>
               <h3 className="text-base font-bold text-slate-300">Ready to Execute Pipeline</h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Fill in the defect attributes on the left and click "Predict Risk &amp; Run Multi-Layer Optimization" to evaluate failure probability, negotiation claims, and track possession slots.
+                Specify Task ID and defect attributes on the left and click "Predict Risk &amp; Run Multi-Layer Optimization" to evaluate failure probability, negotiation claims, and track possession slots.
               </p>
             </div>
           )}
@@ -464,6 +508,17 @@ export default function PredictAndOptimize() {
           {/* Results Cards Container */}
           {pipelineResults && (
             <div className="space-y-4 animate-fade-in">
+              {/* Task ID Banner */}
+              <div className="bg-sky-950/50 border border-sky-800/80 p-3 rounded-xl flex items-center justify-between text-xs text-sky-200">
+                <span className="font-semibold flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-sky-400">task_alt</span>
+                  Registered Task Reference:
+                </span>
+                <span className="font-mono font-bold text-sky-300 bg-sky-900/60 px-2 py-0.5 rounded border border-sky-700">
+                  {pipelineResults.segmentMeta?.task_id || formData.task_id}
+                </span>
+              </div>
+
               {/* Layer 1 ML Risk Prediction Card */}
               <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl p-5 shadow-md text-white space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -575,23 +630,90 @@ export default function PredictAndOptimize() {
                   </span>
                 </div>
 
-                <div className="bg-[#182338] p-3 rounded-lg border border-slate-800 text-xs space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400">Allocated Possession Window:</span>
-                    <span className="font-bold text-emerald-400 font-mono">
-                      BLK-D1-NIGHT (01:00 - 05:00 IST)
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400">Passenger Train Conflicts:</span>
-                    <span className="font-bold text-emerald-400">Protected (0 Conflict with 12952 Rajdhani)</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400">Recommended Freight Window:</span>
-                    <span className="font-mono text-sky-300">01:00 - 05:00 (Off-Peak Corridor Path)</span>
-                  </div>
-                </div>
+                {(() => {
+                  const assignment = pipelineResults.matchedAssignment;
+                  const startStr = assignment?.block_start ? new Date(assignment.block_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '01:30';
+                  const endStr = assignment?.block_end ? new Date(assignment.block_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '05:00';
+                  const blockTitle = assignment?.assigned_block || 'BLK-D1-NIGHT';
+                  const windowDisplay = `${startStr} - ${endStr} IST`;
+
+                  return (
+                    <div className="bg-[#182338] p-3 rounded-lg border border-slate-800 text-xs space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Allocated Task Reference:</span>
+                        <span className="font-bold text-sky-400 font-mono">
+                          {pipelineResults.segmentMeta?.task_id || formData.task_id}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Allocated Possession Window:</span>
+                        <span className="font-bold text-emerald-400 font-mono">
+                          {blockTitle} ({windowDisplay})
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Passenger Train Conflicts:</span>
+                        <span className="font-bold text-emerald-400">Protected (0 Conflict with 12952 Rajdhani)</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Recommended Freight Window:</span>
+                        <span className="font-mono text-sky-300">{startStr} - {endStr} (Off-Peak Corridor Path)</span>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Reported Defect Storage & Database Audit History */}
+      <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl p-5 shadow-md text-slate-200 space-y-4 mt-6">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-sky-400">database</span>
+            <h2 className="text-base font-bold text-white">Stored Defect Tasks History (Database Persistence)</h2>
+          </div>
+          <span className="text-xs font-mono text-slate-400">
+            {storedTasks.length} Defect Tasks Saved
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs font-mono border-collapse">
+            <thead>
+              <tr className="bg-[#1e293b] text-slate-400 border-b border-slate-800">
+                <th className="py-2.5 px-3 font-bold">Task ID</th>
+                <th className="py-2.5 px-3 font-bold">Segment ID</th>
+                <th className="py-2.5 px-3 font-bold">Dept</th>
+                <th className="py-2.5 px-3 font-bold">Type</th>
+                <th className="py-2.5 px-3 font-bold">Claimed Urgency</th>
+                <th className="py-2.5 px-3 font-bold">Duration</th>
+                <th className="py-2.5 px-3 font-bold text-right">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800 text-slate-300">
+              {storedTasks.slice(0, 10).map((t) => (
+                <tr key={t.task_id} className="hover:bg-[#182338] transition-colors">
+                  <td className="py-2 px-3 font-bold text-sky-400">{t.task_id}</td>
+                  <td className="py-2 px-3 text-slate-200">{t.segment_id}</td>
+                  <td className="py-2 px-3">{t.department}</td>
+                  <td className="py-2 px-3">{t.task_type || 'defect'}</td>
+                  <td className="py-2 px-3 text-amber-400">{t.claimed_criticality} / 5</td>
+                  <td className="py-2 px-3">{t.min_duration_hrs} hrs</td>
+                  <td className="py-2 px-3 text-right">
+                    <span className="bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded text-[10px] font-bold uppercase">
+                      {t.status || 'pending'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {storedTasks.length === 0 && (
+            <div className="text-center py-6 text-slate-500 text-xs">
+              No defect tasks stored yet. Fill the form above and submit to save new defect tasks into the database.
             </div>
           )}
         </div>
