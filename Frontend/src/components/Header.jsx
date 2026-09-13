@@ -57,10 +57,10 @@ export default function Header() {
               <span className="material-symbols-outlined text-[15px] text-secondary shrink-0">arrow_drop_down</span>
             </button>
 
-            {/* Slot & Desk details */}
+            {/* Shift & Desk details */}
             <div className="hidden md:flex items-center gap-2 text-[12px] font-code-sm text-secondary">
               <span className="w-2 h-2 rounded-full bg-on-tertiary-container animate-pulse"></span>
-              <span className="font-semibold text-on-surface">FULL DAY (00:00 - 24:00 IST)</span>
+              <span className="font-semibold text-on-surface">DAY SHIFT (06:00 - 18:00 IST)</span>
               <span>•</span>
               <span>SR. DOM / COA DESK</span>
             </div>
@@ -185,7 +185,7 @@ export default function Header() {
               </div>
               <div className="flex items-center gap-space-sm">
                 <span className="font-label-caps text-label-caps bg-tertiary-fixed text-on-tertiary-fixed px-1.5 py-0.5 rounded font-bold uppercase">
-                  FULL DAY 00:00-24:00 IST
+                  DAY SHIFT 06:00-18:00
                 </span>
                 <span className="font-code-sm text-code-sm text-on-surface-variant">Sr. DOM / COA</span>
               </div>

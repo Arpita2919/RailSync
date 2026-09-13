@@ -60,25 +60,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration supporting localhost, Hugging Face Spaces (*.hf.space, *.huggingface.co), Vercel, and custom origins
-_origins = settings.cors_origin_list
-if "*" in _origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_origins,
-        allow_origin_regex=r"https?://.*\.hf\.space|https?://.*\.huggingface\.co|https?://.*\.vercel\.app|https?://localhost(:\d+)?|https?://127\.0\.0\.1(:\d+)?",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Register routes
 app.include_router(health.router)
@@ -89,7 +78,6 @@ app.include_router(optimization.router)
 app.include_router(plans.router)
 app.include_router(feedback.router)
 app.include_router(timetable.router)
-app.include_router(timetable.api_v1_router)
 
 
 @app.get("/")

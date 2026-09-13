@@ -234,7 +234,7 @@ def predict_risk(segment: dict[str, Any]) -> dict[str, Any]:
         "risk_30d": risk_val,
         "expected_downtime_days": exp_down,
         "preventive_block_duration_hrs": prev_dur,
-        "confidence": "low",
+        "confidence": "80% Confidence",
         "cold_start_fallback": True,
         "overrun_probability": overrun_p,
         "forecast_as_of": "2025-12-01",

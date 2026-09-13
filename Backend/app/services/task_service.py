@@ -18,7 +18,7 @@ def ingest_task(db: Session, request: TaskCreateRequest) -> tuple[TaskResponse, 
     """
     segment = repo.get_segment(db, request.segment_id)
     if segment is None:
-        raise ValueError(f"Segment '{request.segment_id}' does not exist in master dataset")
+        segment = repo.upsert_segment(db, segment_id=request.segment_id)
 
     kwargs = {
         "task_id": request.task_id,
